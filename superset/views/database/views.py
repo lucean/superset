@@ -18,6 +18,8 @@ import os
 import tempfile
 from typing import TYPE_CHECKING
 
+from io import StringIO
+
 import pandas as pd
 from flask import flash, g, redirect
 from flask_appbuilder import expose, SimpleFormView
@@ -38,7 +40,7 @@ from superset.typing import FlaskResponse
 from superset.utils import core as utils
 from superset.views.base import DeleteMixin, SupersetModelView, YamlExportMixin
 
-from .forms import CsvToDatabaseForm, ExcelToDatabaseForm
+from .forms import CsvToDatabaseForm, CsvTextToDatabaseForm
 from .mixins import DatabaseMixin
 from .validators import schema_allows_csv_upload, sqlalchemy_uri_validator
 
@@ -116,6 +118,7 @@ class CsvToDatabaseView(SimpleFormView):
     add_columns = ["database", "schema", "table_name"]
 
     def form_get(self, form: CsvToDatabaseForm) -> None:
+        form.schema.data = g.user.username
         form.sep.data = ","
         form.header.data = 0
         form.mangle_dupe_cols.data = True
@@ -127,7 +130,8 @@ class CsvToDatabaseView(SimpleFormView):
 
     def form_post(self, form: CsvToDatabaseForm) -> Response:
         database = form.con.data
-        csv_table = Table(table=form.name.data, schema=form.schema.data)
+        table_name = form.name.data + '_upload'
+        csv_table = Table(table=table_name, schema=form.schema.data)
 
         if not schema_allows_csv_upload(database, csv_table.schema):
             message = _(
@@ -157,7 +161,7 @@ class CsvToDatabaseView(SimpleFormView):
                     encoding="utf-8",
                     filepath_or_buffer=form.csv_file.data,
                     header=form.header.data if form.header.data else 0,
-                    index_col=form.index_col.data,
+                    index_col=None,
                     infer_datetime_format=form.infer_datetime_format.data,
                     iterator=True,
                     keep_default_na=not form.null_values.data,
@@ -185,8 +189,8 @@ class CsvToDatabaseView(SimpleFormView):
                 to_sql_kwargs={
                     "chunksize": 1000,
                     "if_exists": form.if_exists.data,
-                    "index": form.index.data,
-                    "index_label": form.index_label.data,
+                    "index": False,
+                    "index_label": None,
                 },
             )
 
@@ -231,7 +235,7 @@ class CsvToDatabaseView(SimpleFormView):
                 '"%(table_name)s" in database "%(db_name)s". '
                 "Error message: %(error_msg)s",
                 filename=form.csv_file.data.filename,
-                table_name=form.name.data,
+                table_name=table_name,
                 db_name=database.database_name,
                 error_msg=str(ex),
             )
@@ -252,65 +256,71 @@ class CsvToDatabaseView(SimpleFormView):
         stats_logger.incr("successful_csv_upload")
         return redirect("/tablemodelview/list/")
 
-
-class ExcelToDatabaseView(SimpleFormView):
-    form = ExcelToDatabaseForm
-    form_template = "superset/form_view/excel_to_database_view/edit.html"
-    form_title = _("Excel to Database configuration")
+class CsvTextToDatabaseView(SimpleFormView):
+    form = CsvTextToDatabaseForm
+    form_template = "superset/form_view/csv_text_to_database_view/edit.html"
+    form_title = _("CSV Text to Database configuration")
     add_columns = ["database", "schema", "table_name"]
 
-    def form_get(self, form: ExcelToDatabaseForm) -> None:
+    def form_get(self, form: CsvTextToDatabaseForm) -> None:
+        form.schema.data = g.user.username
+        form.sep.data = ","
         form.header.data = 0
         form.mangle_dupe_cols.data = True
+        form.skipinitialspace.data = False
+        form.skip_blank_lines.data = True
+        form.infer_datetime_format.data = True
         form.decimal.data = "."
         form.if_exists.data = "fail"
-        form.sheet_name.data = ""
 
-    def form_post(self, form: ExcelToDatabaseForm) -> Response:
+    def form_post(self, form: CsvTextToDatabaseForm) -> Response:
         database = form.con.data
-        excel_table = Table(table=form.name.data, schema=form.schema.data)
+        table_name = form.name.data + '_upload'
+        csv_table = Table(table=table_name, schema=form.schema.data)
 
-        if not schema_allows_csv_upload(database, excel_table.schema):
+        if not schema_allows_csv_upload(database, csv_table.schema):
             message = _(
                 'Database "%(database_name)s" schema "%(schema_name)s" '
-                "is not allowed for excel uploads. Please contact your Superset Admin.",
+                "is not allowed for csv uploads. Please contact your Superset Admin.",
                 database_name=database.database_name,
-                schema_name=excel_table.schema,
+                schema_name=csv_table.schema,
             )
             flash(message, "danger")
-            return redirect("/exceltodatabaseview/form")
+            return redirect("/csvtexttodatabaseview/form")
 
-        if "." in excel_table.table and excel_table.schema:
+        if "." in csv_table.table and csv_table.schema:
             message = _(
                 "You cannot specify a namespace both in the name of the table: "
-                '"%(excel_table.table)s" and in the schema field: '
-                '"%(excel_table.schema)s". Please remove one',
-                table=excel_table.table,
-                schema=excel_table.schema,
+                '"%(csv_table.table)s" and in the schema field: '
+                '"%(csv_table.schema)s". Please remove one',
+                table=csv_table.table,
+                schema=csv_table.schema,
             )
             flash(message, "danger")
-            return redirect("/exceltodatabaseview/form")
-
-        uploaded_tmp_file_path = tempfile.NamedTemporaryFile(
-            dir=app.config["UPLOAD_FOLDER"],
-            suffix=os.path.splitext(form.excel_file.data.filename)[1].lower(),
-            delete=False,
-        ).name
+            return redirect("/csvtodatabaseview/form")
 
         try:
-            utils.ensure_path_exists(config["UPLOAD_FOLDER"])
-            upload_stream_write(form.excel_file.data, uploaded_tmp_file_path)
+            csv_text_buffer = StringIO(form.csv_file.data)
 
-            df = pd.read_excel(
-                header=form.header.data if form.header.data else 0,
-                index_col=form.index_col.data,
-                io=form.excel_file.data,
-                keep_default_na=not form.null_values.data,
-                mangle_dupe_cols=form.mangle_dupe_cols.data,
-                na_values=form.null_values.data if form.null_values.data else None,
-                parse_dates=form.parse_dates.data,
-                skiprows=form.skiprows.data,
-                sheet_name=form.sheet_name.data if form.sheet_name.data else 0,
+            df = pd.concat(
+                pd.read_csv(
+                    chunksize=1000,
+                    encoding="utf-8",
+                    filepath_or_buffer=csv_text_buffer,
+                    header=form.header.data if form.header.data else 0,
+                    index_col=None,
+                    infer_datetime_format=form.infer_datetime_format.data,
+                    iterator=True,
+                    keep_default_na=not form.null_values.data,
+                    mangle_dupe_cols=form.mangle_dupe_cols.data,
+                    na_values=form.null_values.data if form.null_values.data else None,
+                    nrows=form.nrows.data,
+                    parse_dates=form.parse_dates.data,
+                    sep=form.sep.data,
+                    skip_blank_lines=form.skip_blank_lines.data,
+                    skipinitialspace=form.skipinitialspace.data,
+                    skiprows=form.skiprows.data,
+                )
             )
 
             database = (
@@ -321,18 +331,18 @@ class ExcelToDatabaseView(SimpleFormView):
 
             database.db_engine_spec.df_to_sql(
                 database,
-                excel_table,
+                csv_table,
                 df,
                 to_sql_kwargs={
                     "chunksize": 1000,
                     "if_exists": form.if_exists.data,
-                    "index": form.index.data,
-                    "index_label": form.index_label.data,
+                    "index": False,
+                    "index_label": None,
                 },
             )
 
             # Connect table to the database that should be used for exploration.
-            # E.g. if hive was used to upload a excel, presto will be a better option
+            # E.g. if hive was used to upload a csv, presto will be a better option
             # to explore the table.
             expore_database = database
             explore_database_id = database.explore_database_id
@@ -347,8 +357,8 @@ class ExcelToDatabaseView(SimpleFormView):
             sqla_table = (
                 db.session.query(SqlaTable)
                 .filter_by(
-                    table_name=excel_table.table,
-                    schema=excel_table.schema,
+                    table_name=csv_table.table,
+                    schema=csv_table.schema,
                     database_id=expore_database.id,
                 )
                 .one_or_none()
@@ -357,38 +367,36 @@ class ExcelToDatabaseView(SimpleFormView):
             if sqla_table:
                 sqla_table.fetch_metadata()
             if not sqla_table:
-                sqla_table = SqlaTable(table_name=excel_table.table)
+                sqla_table = SqlaTable(table_name=csv_table.table)
                 sqla_table.database = expore_database
                 sqla_table.database_id = database.id
                 sqla_table.user_id = g.user.get_id()
-                sqla_table.schema = excel_table.schema
+                sqla_table.schema = csv_table.schema
                 sqla_table.fetch_metadata()
                 db.session.add(sqla_table)
             db.session.commit()
         except Exception as ex:  # pylint: disable=broad-except
             db.session.rollback()
             message = _(
-                'Unable to upload Excel file "%(filename)s" to table '
+                'Unable to upload CSV content to table '
                 '"%(table_name)s" in database "%(db_name)s". '
                 "Error message: %(error_msg)s",
-                filename=form.excel_file.data.filename,
-                table_name=form.name.data,
+                table_name=table_name,
                 db_name=database.database_name,
                 error_msg=str(ex),
             )
 
             flash(message, "danger")
-            stats_logger.incr("failed_excel_upload")
-            return redirect("/exceltodatabaseview/form")
+            stats_logger.incr("failed_csv_upload")
+            return redirect("/csvtexttodatabaseview/form")
 
         # Go back to welcome page / splash screen
         message = _(
-            'Excel file "%(excel_filename)s" uploaded to table "%(table_name)s" in '
+            'CSV data uploaded to table "%(table_name)s" in '
             'database "%(db_name)s"',
-            excel_filename=form.excel_file.data.filename,
-            table_name=str(excel_table),
+            table_name=str(csv_table),
             db_name=sqla_table.database.database_name,
         )
         flash(message, "info")
-        stats_logger.incr("successful_excel_upload")
+        stats_logger.incr("successful_csv_upload")
         return redirect("/tablemodelview/list/")

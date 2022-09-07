@@ -169,7 +169,7 @@ class SupersetAppInitializer:
         from superset.views.database.views import (
             CsvToDatabaseView,
             DatabaseView,
-            ExcelToDatabaseView,
+            CsvTextToDatabaseView,
         )
         from superset.views.datasource import Datasource
         from superset.views.dynamic_plugins import DynamicPluginsView
@@ -280,7 +280,7 @@ class SupersetAppInitializer:
         appbuilder.add_view_no_menu(Api)
         appbuilder.add_view_no_menu(CssTemplateAsyncModelView)
         appbuilder.add_view_no_menu(CsvToDatabaseView)
-        appbuilder.add_view_no_menu(ExcelToDatabaseView)
+        appbuilder.add_view_no_menu(CsvTextToDatabaseView)
         appbuilder.add_view_no_menu(Dashboard)
         appbuilder.add_view_no_menu(DashboardModelViewAsync)
         appbuilder.add_view_no_menu(Datasource)
@@ -358,8 +358,8 @@ class SupersetAppInitializer:
         )
         appbuilder.add_separator("Data")
         appbuilder.add_link(
-            "Upload a CSV",
-            label=__("Upload a CSV"),
+            "Upload CSV data (file)",
+            label=__("Upload CSV data (file)"),
             href="/csvtodatabaseview/form",
             icon="fa-upload",
             category="Data",
@@ -376,15 +376,15 @@ class SupersetAppInitializer:
             import xlrd  # pylint: disable=unused-import
 
             appbuilder.add_link(
-                "Upload Excel",
-                label=__("Upload Excel"),
-                href="/exceltodatabaseview/form",
+                "Upload CSV data (text)",
+                label=__("Upload CSV data (text)"),
+                href="/csvtexttodatabaseview/form",
                 icon="fa-upload",
                 category="Data",
                 category_label=__("Data"),
                 category_icon="fa-wrench",
                 cond=lambda: bool(
-                    self.config["EXCEL_EXTENSIONS"].intersection(
+                    self.config["CSV_EXTENSIONS"].intersection(
                         self.config["ALLOWED_EXTENSIONS"]
                     )
                 ),
