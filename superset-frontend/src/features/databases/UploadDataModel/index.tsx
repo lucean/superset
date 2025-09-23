@@ -224,10 +224,8 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
   type = 'csv',
 }) => {
   const [form] = AntdForm.useForm();
-  const [currentDatabaseId, setCurrentDatabaseId] = useState<number>(0);
-
   const uploadDatabaseName = process.env.UPLOAD_DATABASE_NAME || 'examples';
-  const [uploadDatabaseId, setUploadDatabaseId] = useState<number>();
+  const [uploadDatabaseId, setUploadDatabaseId] = useState<number>(-1);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
   const [sheetNames, setSheetNames] = useState<string[]>([]);
@@ -377,7 +375,7 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
    */
   const getDatabaseIdForName = async (
     databaseName: string,
-  ): Promise<number | null> => {
+  ): Promise<number> => {
     const query = rison.encode_uri({
       columns: ['id'],
       filters: [{ col: 'database_name', opr: 'eq', value: databaseName }],
@@ -390,7 +388,7 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
         endpoint: `/api/v1/database/?q=${query}`,
       });
 
-      return json?.result?.[0]?.id ?? null;
+      return json?.result?.[0]?.id ?? -1;
     } catch (error) {
       const { error: err } = await getClientErrorObject(error);
       throw err;
@@ -424,18 +422,19 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
       try {
         const id = await getDatabaseIdForName(uploadDatabaseName);
         if (!cancelled) {
-          console.log('Setting ID: ', id);
-          setUploadDatabaseId(id ?? undefined);
+          setUploadDatabaseId(id);
         }
-      } catch (err) {
+      } catch (error) {
         if (!cancelled) {
-          console.error('Failed to look up DB id:', err);
-          setUploadDatabaseId(undefined);
+          addDangerToast(
+            buildDetailedUploadErrorMessage(
+              error,
+              t('Could not configure database for data upload.'),
+            ),
+          );
         }
       }
     })();
-
-    console.log('DatabaseId: ', uploadDatabaseId);
 
     return () => {
       cancelled = true;
@@ -529,12 +528,6 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
     setPreviewUploadedFile(value);
   };
 
-  const onChangeDatabase = (database: { value: number; label: string }) => {
-    setCurrentDatabaseId(database?.value);
-    setCurrentSchema(undefined);
-    form.setFieldsValue({ schema: undefined });
-  };
-
   const onChangeSchema = (schema: { value: string; label: string }) => {
     setCurrentSchema(schema?.value);
   };
@@ -547,7 +540,6 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
     setFileList([]);
     setColumns([]);
     setCurrentSchema('');
-    setCurrentDatabaseId(0);
     setSheetNames([]);
     setIsLoading(false);
     setDelimiter(',');
@@ -590,11 +582,11 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
   const loadSchemaOptions = useMemo(
     () =>
       (input = '', page: number, pageSize: number) => {
-        if (!currentDatabaseId) {
+        if (!uploadDatabaseId) {
           return Promise.resolve({ data: [], totalCount: 0 });
         }
         return SupersetClient.get({
-          endpoint: `/api/v1/database/${currentDatabaseId}/schemas/`,
+          endpoint: `/api/v1/database/${uploadDatabaseId}/schemas/`,
         }).then(response => {
           const list = response.json.result.map((item: string) => ({
             value: item,
@@ -603,7 +595,7 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
           return { data: list, totalCount: response.json.count };
         });
       },
-    [currentDatabaseId],
+    [uploadDatabaseId],
   );
 
   const loadFileMetadata = (file: File) => {
@@ -704,7 +696,7 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
     }
     appendFormData(formData, mergedValues);
     setIsLoading(true);
-    const endpoint = createTypeToEndpointMap(currentDatabaseId);
+    const endpoint = createTypeToEndpointMap(uploadDatabaseId);
     formData.append('type', type);
     return SupersetClient.post({
       endpoint,
@@ -811,7 +803,7 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
   };
 
   const validateDatabase = (_: any, value: string) => {
-    if (!currentDatabaseId) {
+    if (!uploadDatabaseId) {
       return Promise.reject(t('Selecting a database is required'));
     }
     return Promise.resolve();
@@ -930,7 +922,6 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
                   <AsyncSelect
                     ariaLabel={t('Select a database')}
                     options={loadDatabaseOptions}
-                    onChange={onChangeDatabase}
                     allowClear
                     placeholder={t('Select a database to upload the file to')}
                   />
