@@ -43,11 +43,14 @@ import {
   Select,
   Upload,
 } from 'src/components';
-import { UploadOutlined } from '@ant-design/icons';
+import { Typography } from 'antd';
+import { CopyOutlined, UploadOutlined } from '@ant-design/icons';
 import { Input, InputNumber } from 'src/components/Input';
 import rison from 'rison';
 import { UploadChangeParam, UploadFile } from 'antd/lib/upload/interface';
 import withToasts from 'src/components/MessageToasts/withToasts';
+// eslint-disable-next-line import/no-extraneous-dependencies
+import { csvParse, autoType } from 'd3-dsv';
 import {
   antdCollapseStyles,
   antDModalNoPaddingStyles,
@@ -69,6 +72,8 @@ interface UploadDataModalProps {
   allowedExtensions: string[];
   type: UploadType;
 }
+
+const { Paragraph } = Typography;
 
 const CSVSpecificFields = [
   'delimiter',
@@ -232,6 +237,78 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
     useState<boolean>(false);
   const [previewUploadedFile, setPreviewUploadedFile] = useState<boolean>(true);
   const [fileLoading, setFileLoading] = useState<boolean>(false);
+  const [showCsvSchema, setShowCsvSchema] = useState<boolean>(false);
+  const [csvText, setCsvText] = useState<string>('');
+  const [csvSchema, setCsvSchema] = useState<{} | null>(null);
+  const [columnDataTypes, setColumnDataTypes] = useState<string>('');
+  type PandasType =
+    | 'int64'
+    | 'float64'
+    | 'bool'
+    | 'string'
+    | 'object'
+    | 'datetime64[ns]'
+    | 'null';
+
+  function inferType(value: any): PandasType {
+    if (value === '' || value === null || value === undefined) return 'null';
+    if (typeof value === 'boolean') return 'bool';
+    if (typeof value === 'number')
+      return Number.isInteger(value) ? 'int64' : 'float64';
+    if (value instanceof Date && !Number.isNaN(value.getTime()))
+      return 'datetime64[ns]';
+    if (typeof value === 'string') return 'string';
+    return 'object';
+  }
+
+  function toPandasType(values: any[]): PandasType {
+    const typeCounts: Record<string, number> = {};
+    const nonNullTypes: Set<PandasType> = new Set<PandasType>();
+    for (const val of values) {
+      const t: PandasType = inferType(val);
+      if (t !== 'null') {
+        typeCounts[t] = (typeCounts[t] || 0) + 1;
+        nonNullTypes.add(t);
+      }
+    }
+    const types: PandasType[] = Array.from(nonNullTypes);
+    if (types.length === 0) return 'object';
+    if (types.length === 1) return types[0];
+    if (
+      types.includes('int64') &&
+      types.includes('float64') &&
+      types.length === 2
+    )
+      return 'float64';
+    return 'object';
+  }
+
+  function inferSchema(csvText: string, sampleSize = 10): {} {
+    const data: any = csvParse(csvText, autoType);
+    const sample: Record<string, PandasType>[] = data.slice(0, sampleSize);
+    if (sample.length === 0) return {};
+    const schema: Record<string, PandasType> = {};
+    for (const key of Object.keys(sample[0])) {
+      const columnValues = sample.map(row => row[key]);
+      schema[key] = toPandasType(columnValues);
+    }
+    return schema;
+  }
+
+  const useCsvSchema = () => {
+    setColumnDataTypes(JSON.stringify(csvSchema));
+  };
+
+  useEffect(() => {
+    if (csvText !== null) {
+      const result = inferSchema(csvText);
+      setCsvSchema(result);
+    }
+  }, [csvText]);
+
+  useEffect(() => {
+    form.setFieldsValue({ column_data_types: columnDataTypes });
+  }, [columnDataTypes, form]);
 
   const createTypeToEndpointMap = (databaseId: number) =>
     `/api/v1/database/${databaseId}/upload/`;
@@ -512,6 +589,20 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
     }));
 
   const onChangeFile = async (info: UploadChangeParam<any>) => {
+    const file = info.file.originFileObj;
+
+    if (file && file.type === 'text/csv') {
+      const reader = new FileReader();
+      reader.onload = e => {
+        const text = (e.target?.result as string) || '';
+        setCsvText(text);
+      };
+      reader.onerror = () => {
+        addDangerToast('Failed to read file.');
+      };
+      reader.readAsText(file);
+    }
+
     setFileList([
       {
         ...info.file,
@@ -915,8 +1006,56 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
                     )}
                     name="column_data_types"
                   >
-                    <Input aria-label={t('Column data types')} type="text" />
+                    <Input
+                      aria-label={t('Column data types')}
+                      type="text"
+                      value={columnDataTypes}
+                      onChange={e => {
+                        setColumnDataTypes(e.target.value);
+                      }}
+                    />
                   </StyledFormItemWithTip>
+                </Col>
+              </Row>
+            )}
+            <Row>
+              <Col span={24}>
+                <Row>
+                  <SwitchContainer
+                    label={t('Show inferred schema')}
+                    dataTest="inferredSchema"
+                    onChange={setShowCsvSchema}
+                  />
+                </Row>
+              </Col>
+            </Row>
+            {showCsvSchema && (
+              <Row>
+                <Col span={24}>
+                  <Row>
+                    <Paragraph>
+                      <pre
+                        style={{
+                          margin: 0,
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-word',
+                        }}
+                      >
+                        {JSON.stringify(csvSchema, null, 2)}
+                      </pre>
+                    </Paragraph>
+                  </Row>
+                </Col>
+              </Row>
+            )}
+            {showCsvSchema && (
+              <Row>
+                <Col span={24}>
+                  <Button
+                    icon={<CopyOutlined />}
+                    title={t('Use Inferred Schema')}
+                    onClick={useCsvSchema}
+                  />
                 </Col>
               </Row>
             )}

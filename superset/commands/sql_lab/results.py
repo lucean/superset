@@ -82,6 +82,7 @@ class SqlExecutionResultsCommand(BaseCommand):
                 status=410,
             )
 
+        logger.info("querying")
         self._query = (
             db.session.query(Query).filter_by(results_key=self._key).one_or_none()
         )
