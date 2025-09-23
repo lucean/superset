@@ -26,6 +26,7 @@ import {
 } from 'react';
 
 import {
+  ClientErrorObject,
   getClientErrorObject,
   SupersetClient,
   SupersetTheme,
@@ -73,6 +74,15 @@ interface UploadDataModalProps {
   type: UploadType;
 }
 
+type PandasType =
+  | 'int64'
+  | 'float64'
+  | 'bool'
+  | 'string'
+  | 'object'
+  | 'datetime64[ns]'
+  | 'null';
+
 const { Paragraph } = Typography;
 
 const CSVSpecificFields = [
@@ -115,6 +125,79 @@ const UploadTypeToSpecificFields: Record<UploadType, string[]> = {
   csv: CSVSpecificFields,
   excel: ExcelSpecificFields,
   columnar: ColumnarSpecificFields,
+};
+
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+const normalizeFieldMessages = (
+  messages: Record<string, unknown>,
+): string[] => {
+  const formattedMessages: string[] = [];
+  Object.entries(messages).forEach(([field, value]) => {
+    if (Array.isArray(value)) {
+      value
+        .filter((message): message is string => typeof message === 'string')
+        .forEach(message => {
+          if (message.trim()) {
+            formattedMessages.push(
+              field ? `${field}: ${message}` : message,
+            );
+          }
+        });
+    } else if (typeof value === 'string' && value.trim()) {
+      formattedMessages.push(field ? `${field}: ${value}` : value);
+    }
+  });
+  return formattedMessages;
+};
+
+const buildDetailedUploadErrorMessage = (
+  error: ClientErrorObject,
+  fallback: string,
+): string => {
+  const baseMessage =
+    typeof error.error === 'string' && error.error.trim()
+      ? error.error.trim()
+      : '';
+
+  const collectedMessages: string[] = [];
+
+  if (Array.isArray(error.errors)) {
+    error.errors.forEach(({ extra, message }) => {
+      if (isObject(extra) && extra.messages && isObject(extra.messages)) {
+        collectedMessages.push(
+          ...normalizeFieldMessages(extra.messages as Record<string, unknown>),
+        );
+      } else if (typeof message === 'string' && message.trim()) {
+        collectedMessages.push(message.trim());
+      }
+    });
+  }
+
+  if (isObject(error.message)) {
+    collectedMessages.push(
+      ...normalizeFieldMessages(error.message as Record<string, unknown>),
+    );
+  }
+
+  if (baseMessage) {
+    collectedMessages.unshift(baseMessage);
+  }
+
+  const uniqueMessages = Array.from(
+    new Set(collectedMessages.filter(Boolean)),
+  ) as string[];
+
+  if (uniqueMessages.length > 0) {
+    return uniqueMessages.join('\n');
+  }
+
+  if (error.statusText) {
+    return error.statusText;
+  }
+
+  return fallback;
 };
 
 const isFieldATypeSpecificField = (field: string, type: UploadType) =>
@@ -239,16 +322,11 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
   const [fileLoading, setFileLoading] = useState<boolean>(false);
   const [showCsvSchema, setShowCsvSchema] = useState<boolean>(false);
   const [csvText, setCsvText] = useState<string>('');
-  const [csvSchema, setCsvSchema] = useState<{} | null>(null);
+  const [csvSchema, setCsvSchema] = useState<
+    Record<string, PandasType> | null
+  >(null);
+  const [inferredColumnDates, setInferredColumnDates] = useState<string[]>([]);
   const [columnDataTypes, setColumnDataTypes] = useState<string>('');
-  type PandasType =
-    | 'int64'
-    | 'float64'
-    | 'bool'
-    | 'string'
-    | 'object'
-    | 'datetime64[ns]'
-    | 'null';
 
   function inferType(value: any): PandasType {
     if (value === '' || value === null || value === undefined) return 'null';
@@ -283,7 +361,10 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
     return 'object';
   }
 
-  function inferSchema(csvText: string, sampleSize = 10): {} {
+  function inferSchema(
+    csvText: string,
+    sampleSize = 10,
+  ): Record<string, PandasType> {
     const data: any = csvParse(csvText, autoType);
     const sample: Record<string, PandasType>[] = data.slice(0, sampleSize);
     if (sample.length === 0) return {};
@@ -296,15 +377,40 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
   }
 
   const useCsvSchema = () => {
-    setColumnDataTypes(JSON.stringify(csvSchema));
+    if (!csvSchema) {
+      return;
+    }
+    const columnTypes = Object.fromEntries(
+      Object.entries(csvSchema).filter(
+        ([, value]) => value !== 'datetime64[ns]',
+      ),
+    );
+    setColumnDataTypes(JSON.stringify(columnTypes));
+    if (isFieldATypeSpecificField('column_dates', type)) {
+      form.setFieldsValue({ column_dates: inferredColumnDates });
+    }
   };
 
   useEffect(() => {
-    if (csvText !== null) {
-      const result = inferSchema(csvText);
-      setCsvSchema(result);
+    if (!csvText) {
+      setCsvSchema(null);
+      setInferredColumnDates([]);
+      return;
     }
+    const result = inferSchema(csvText);
+    setCsvSchema(result);
+    const dateColumns = Object.entries(result)
+      .filter(([, value]) => value === 'datetime64[ns]')
+      .map(([column]) => column);
+    setInferredColumnDates(dateColumns);
   }, [csvText]);
+
+  useEffect(() => {
+    if (!isFieldATypeSpecificField('column_dates', type)) {
+      return;
+    }
+    form.setFieldsValue({ column_dates: inferredColumnDates });
+  }, [form, inferredColumnDates, type]);
 
   useEffect(() => {
     form.setFieldsValue({ column_data_types: columnDataTypes });
@@ -399,6 +505,9 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
     setPreviewUploadedFile(true);
     setFileLoading(false);
     setSheetsColumnNames({});
+    setCsvText('');
+    setCsvSchema(null);
+    setInferredColumnDates([]);
     form.resetFields();
   };
 
@@ -492,7 +601,12 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
       })
       .catch(response =>
         getClientErrorObject(response).then(error => {
-          addDangerToast(error.error || 'Error');
+          addDangerToast(
+            buildDetailedUploadErrorMessage(
+              error,
+              t('Failed to fetch file metadata.'),
+            ),
+          );
           setColumns([]);
           form.setFieldsValue({ sheet_name: undefined });
           setSheetNames([]);
@@ -556,7 +670,12 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
       })
       .catch(response =>
         getClientErrorObject(response).then(error => {
-          addDangerToast(error.error || 'Error');
+          addDangerToast(
+            buildDetailedUploadErrorMessage(
+              error,
+              t('An unexpected error occurred while uploading data.'),
+            ),
+          );
         }),
       )
       .finally(() => {
