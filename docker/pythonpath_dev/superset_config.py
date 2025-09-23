@@ -23,9 +23,14 @@
 import logging
 import os
 import sys
+from flask import request
+import json
 
 from celery.schedules import crontab
+from flask_appbuilder.const import AUTH_REMOTE_USER
 from flask_caching.backends.filesystemcache import FileSystemCache
+
+from superset.security.header_security import HeaderAuthSecurityManager
 
 logger = logging.getLogger()
 
@@ -95,6 +100,11 @@ class CeleryConfig:
         },
     }
 
+AUTH_TYPE = AUTH_REMOTE_USER
+AUTH_USER_REGISTRATION = True
+AUTH_USER_REGISTRATION_ROLE = "alpha"
+CUSTOM_SECURITY_MANAGER = HeaderAuthSecurityManager
+SECRET_KEY = "change-this-to-a-long-random-string"
 
 CELERY_CONFIG = CeleryConfig
 
@@ -107,6 +117,72 @@ SQLLAB_CTAS_NO_LIMIT = True
 
 log_level_text = os.getenv("SUPERSET_LOG_LEVEL", "INFO")
 LOG_LEVEL = getattr(logging, log_level_text.upper(), logging.INFO)
+
+def log_request(req: request) -> None:
+    """Log detailed information about a Flask request object."""
+    try:
+        # Safely attempt to get JSON body
+        try:
+            json_data = req.get_json(silent=True)
+        except Exception:
+            json_data = None
+
+        log_data = {
+            "method": req.method,
+            "url": req.url,
+            "remote_addr": req.remote_addr,
+            "headers": {k: v for k, v in req.headers.items()},
+            "args": req.args.to_dict(),
+            "form": req.form.to_dict(),
+            "json": json_data,
+            "data_raw": req.get_data(as_text=True),  # raw body
+            "cookies": req.cookies,
+        }
+
+        logging.info("Request details:\n%s", json.dumps(log_data, indent=2))
+    except Exception as e:
+        logging.exception("Failed to log request: %s", e)
+
+def mutator(uri, params, username, security_manager, source):
+    logging.info(f"Mutating {str(uri)}")
+
+    if request:
+        logging.info(f"Request: {log_request(request)}")
+
+    return uri, params
+
+DB_CONNECTION_MUTATOR = mutator
+
+TALISMAN_CONFIG = {
+    "content_security_policy": {
+        "base-uri": ["'self'"],
+        "default-src": ["'self'",],
+        "img-src": [
+            "'self'",
+            "blob:",
+            "data:",
+        ],
+        "worker-src": ["'self'", "blob:"],
+        "connect-src": [
+            "'self'",
+            "https://api.mapbox.com",
+            "https://events.mapbox.com",
+        ],
+        "object-src": "'none'",
+        "style-src": [
+            "'self'",
+            "'unsafe-inline'",
+        ],
+        "script-src": ["'self'", "'strict-dynamic'",],
+    },
+    "content_security_policy_nonce_in": ["script-src"],
+    "force_https": False,
+    "session_cookie_secure": False,
+}
+
+import contextlib
+from flask import Flask
+Flask.test_request_context = contextlib.nullcontext
 
 if os.getenv("CYPRESS_CONFIG") == "true":
     # When running the service as a cypress backend, we need to import the config

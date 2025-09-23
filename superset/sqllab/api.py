@@ -336,6 +336,7 @@ class SqlLabRestApi(BaseSupersetApi):
             500:
               $ref: '#/components/responses/500'
         """
+        logger.info('get_results')
         params = kwargs["rison"]
         key = params.get("key")
         rows = params.get("rows")

@@ -26,6 +26,7 @@ import {
 } from 'react';
 
 import {
+  ClientErrorObject,
   getClientErrorObject,
   SupersetClient,
   SupersetTheme,
@@ -43,11 +44,14 @@ import {
   Select,
   Upload,
 } from 'src/components';
-import { UploadOutlined } from '@ant-design/icons';
+import { Typography } from 'antd';
+import { CopyOutlined, UploadOutlined } from '@ant-design/icons';
 import { Input, InputNumber } from 'src/components/Input';
 import rison from 'rison';
 import { UploadChangeParam, UploadFile } from 'antd/lib/upload/interface';
 import withToasts from 'src/components/MessageToasts/withToasts';
+// eslint-disable-next-line import/no-extraneous-dependencies
+import { csvParse, autoType } from 'd3-dsv';
 import {
   antdCollapseStyles,
   antDModalNoPaddingStyles,
@@ -69,6 +73,8 @@ interface UploadDataModalProps {
   allowedExtensions: string[];
   type: UploadType;
 }
+
+const { Paragraph } = Typography;
 
 const CSVSpecificFields = [
   'delimiter',
@@ -219,6 +225,9 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
 }) => {
   const [form] = AntdForm.useForm();
   const [currentDatabaseId, setCurrentDatabaseId] = useState<number>(0);
+
+  const uploadDatabaseName = process.env.UPLOAD_DATABASE_NAME || 'examples';
+  const [uploadDatabaseId, setUploadDatabaseId] = useState<number>();
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
   const [sheetNames, setSheetNames] = useState<string[]>([]);
@@ -232,6 +241,229 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
     useState<boolean>(false);
   const [previewUploadedFile, setPreviewUploadedFile] = useState<boolean>(true);
   const [fileLoading, setFileLoading] = useState<boolean>(false);
+  const [showCsvSchema, setShowCsvSchema] = useState<boolean>(false);
+  const [csvText, setCsvText] = useState<string>('');
+  const [csvSchema, setCsvSchema] = useState<{} | null>(null);
+  const [columnDataTypes, setColumnDataTypes] = useState<string>('');
+
+  const isObject = (value: unknown): value is Record<string, unknown> =>
+    value !== null && typeof value === 'object' && !Array.isArray(value);
+
+  const normalizeFieldMessages = (
+    messages: Record<string, unknown>,
+  ): string[] => {
+    const formattedMessages: string[] = [];
+    Object.entries(messages).forEach(([field, value]) => {
+      if (Array.isArray(value)) {
+        value
+          .filter((message): message is string => typeof message === 'string')
+          .forEach(message => {
+            if (message.trim()) {
+              formattedMessages.push(field ? `${field}: ${message}` : message);
+            }
+          });
+      } else if (typeof value === 'string' && value.trim()) {
+        formattedMessages.push(field ? `${field}: ${value}` : value);
+      }
+    });
+    return formattedMessages;
+  };
+
+  const buildDetailedUploadErrorMessage = (
+    error: ClientErrorObject,
+    fallback: string,
+  ): string => {
+    const baseMessage = error.error.trim();
+
+    const collectedMessages: string[] = [];
+
+    if (Array.isArray(error.errors)) {
+      error.errors.forEach(({ extra, message }) => {
+        if (isObject(extra) && extra.messages && isObject(extra.messages)) {
+          collectedMessages.push(
+            ...normalizeFieldMessages(
+              extra.messages as Record<string, unknown>,
+            ),
+          );
+        } else {
+          collectedMessages.push(message.trim());
+        }
+      });
+    }
+
+    if (isObject(error.message)) {
+      collectedMessages.push(
+        ...normalizeFieldMessages(error.message as Record<string, unknown>),
+      );
+    }
+
+    if (baseMessage) {
+      collectedMessages.unshift(baseMessage);
+    }
+
+    const uniqueMessages = Array.from(
+      new Set(collectedMessages.filter(Boolean)),
+    ) as string[];
+
+    if (uniqueMessages.length > 0) {
+      return uniqueMessages.join('\n');
+    }
+
+    if (error.statusText) {
+      return error.statusText;
+    }
+
+    return fallback;
+  };
+
+  type PandasType =
+    | 'int64'
+    | 'float64'
+    | 'bool'
+    | 'string'
+    | 'object'
+    | 'datetime64[ns]'
+    | 'null';
+
+  function inferType(value: any): PandasType {
+    if (value === '' || value === null || value === undefined) return 'null';
+    if (typeof value === 'boolean') return 'bool';
+    if (typeof value === 'number')
+      return Number.isInteger(value) ? 'int64' : 'float64';
+    if (value instanceof Date && !Number.isNaN(value.getTime()))
+      return 'datetime64[ns]';
+    if (typeof value === 'string') return 'string';
+    return 'object';
+  }
+
+  function toPandasType(values: any[]): PandasType {
+    const typeCounts: Record<string, number> = {};
+    const nonNullTypes: Set<PandasType> = new Set<PandasType>();
+    for (const val of values) {
+      const t: PandasType = inferType(val);
+      if (t !== 'null') {
+        typeCounts[t] = (typeCounts[t] || 0) + 1;
+        nonNullTypes.add(t);
+      }
+    }
+    const types: PandasType[] = Array.from(nonNullTypes);
+    if (types.length === 0) return 'object';
+    if (types.length === 1) return types[0];
+    if (
+      types.includes('int64') &&
+      types.includes('float64') &&
+      types.length === 2
+    )
+      return 'float64';
+    return 'object';
+  }
+
+  function inferSchema(csvText: string, sampleSize = 10): {} {
+    const data: any = csvParse(csvText, autoType);
+    const sample: Record<string, PandasType>[] = data.slice(0, sampleSize);
+    if (sample.length === 0) return {};
+    const schema: Record<string, PandasType> = {};
+    for (const key of Object.keys(sample[0])) {
+      const columnValues = sample.map(row => row[key]);
+      schema[key] = toPandasType(columnValues);
+    }
+    return schema;
+  }
+
+  /**
+   * Look up the first database matching a given name and return its id.
+   * Leverages the existing `/api/v1/database` endpoint also used in
+   * `DatabaseSelector` for database listings.
+   */
+  const getDatabaseIdForName = async (
+    databaseName: string,
+  ): Promise<number | null> => {
+    const query = rison.encode_uri({
+      columns: ['id'],
+      filters: [{ col: 'database_name', opr: 'eq', value: databaseName }],
+      page: 0,
+      page_size: 1,
+    });
+
+    try {
+      const { json } = await SupersetClient.get({
+        endpoint: `/api/v1/database/?q=${query}`,
+      });
+
+      return json?.result?.[0]?.id ?? null;
+    } catch (error) {
+      const { error: err } = await getClientErrorObject(error);
+      throw err;
+    }
+  };
+
+  const useCsvSchema = () => {
+    setColumnDataTypes(JSON.stringify(csvSchema));
+
+    Object.entries(csvSchema as Record<string, string>)
+      .filter(([, value]) => value === 'datetime64[ns]')
+      .forEach(([key]) => {
+        const currentValues: string[] =
+          form.getFieldValue('column_dates') || [];
+        if (!currentValues.includes(key)) {
+          form.setFieldsValue({
+            column_dates: [...currentValues, key],
+          });
+        }
+      });
+  };
+
+  useEffect(() => {
+    if (!uploadDatabaseName) {
+      return undefined; // explicit, makes ESLint happy
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const id = await getDatabaseIdForName(uploadDatabaseName);
+        if (!cancelled) {
+          console.log('Setting ID: ', id);
+          setUploadDatabaseId(id ?? undefined);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error('Failed to look up DB id:', err);
+          setUploadDatabaseId(undefined);
+        }
+      }
+    })();
+
+    console.log('DatabaseId: ', uploadDatabaseId);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [uploadDatabaseName]);
+
+  useEffect(() => {
+    if (csvText !== null) {
+      const result = inferSchema(csvText);
+      setCsvSchema(result);
+    }
+  }, [csvText]);
+
+  useEffect(() => {
+    const dataTypes: Record<string, string> = columnDataTypes
+      ? JSON.parse(columnDataTypes)
+      : {};
+
+    const dateFilteredDataTypes = JSON.stringify(
+      Object.fromEntries(
+        Object.entries(dataTypes).filter(
+          ([, value]) => !['datetime64', 'datetime64[ns]'].includes(value),
+        ),
+      ),
+    );
+
+    form.setFieldsValue({ column_data_types: dateFilteredDataTypes });
+  }, [columnDataTypes, form]);
 
   const createTypeToEndpointMap = (databaseId: number) =>
     `/api/v1/database/${databaseId}/upload/`;
@@ -322,6 +554,7 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
     setPreviewUploadedFile(true);
     setFileLoading(false);
     setSheetsColumnNames({});
+    setColumnDataTypes('');
     form.resetFields();
   };
 
@@ -415,7 +648,12 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
       })
       .catch(response =>
         getClientErrorObject(response).then(error => {
-          addDangerToast(error.error || 'Error');
+          addDangerToast(
+            buildDetailedUploadErrorMessage(
+              error,
+              t('Failed to fetch file metadata.'),
+            ),
+          );
           setColumns([]);
           form.setFieldsValue({ sheet_name: undefined });
           setSheetNames([]);
@@ -449,6 +687,7 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
   };
 
   const onClose = () => {
+    console.log('example, id: ', getDatabaseIdForName('example'));
     clearModal();
     onHide();
   };
@@ -479,7 +718,12 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
       })
       .catch(response =>
         getClientErrorObject(response).then(error => {
-          addDangerToast(error.error || 'Error');
+          addDangerToast(
+            buildDetailedUploadErrorMessage(
+              error,
+              t('An unexpected error occurred while uploading data.'),
+            ),
+          );
         }),
       )
       .finally(() => {
@@ -512,6 +756,20 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
     }));
 
   const onChangeFile = async (info: UploadChangeParam<any>) => {
+    const file = info.file.originFileObj;
+
+    if (file && file.type === 'text/csv') {
+      const reader = new FileReader();
+      reader.onload = e => {
+        const text = (e.target?.result as string) || '';
+        setCsvText(text);
+      };
+      reader.onerror = () => {
+        addDangerToast('Failed to read file.');
+      };
+      reader.readAsText(file);
+    }
+
     setFileList([
       {
         ...info.file,
@@ -915,10 +1173,62 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
                     )}
                     name="column_data_types"
                   >
-                    <Input aria-label={t('Column data types')} type="text" />
+                    <Input
+                      aria-label={t('Column data types')}
+                      type="text"
+                      value={columnDataTypes}
+                      onChange={e => {
+                        setColumnDataTypes(e.target.value);
+                      }}
+                    />
                   </StyledFormItemWithTip>
                 </Col>
               </Row>
+            )}
+            {isFieldATypeSpecificField('column_data_types', type) && (
+              <>
+                <Row>
+                  <Col span={24}>
+                    <Row>
+                      <SwitchContainer
+                        label={t('Show inferred schema')}
+                        dataTest="inferredSchema"
+                        onChange={setShowCsvSchema}
+                      />
+                    </Row>
+                  </Col>
+                </Row>
+                {showCsvSchema && (
+                  <Row>
+                    <Col span={24}>
+                      <Row>
+                        <Paragraph>
+                          <pre
+                            style={{
+                              margin: 0,
+                              whiteSpace: 'pre-wrap',
+                              wordBreak: 'break-word',
+                            }}
+                          >
+                            {JSON.stringify(csvSchema, null, 2)}
+                          </pre>
+                        </Paragraph>
+                      </Row>
+                    </Col>
+                  </Row>
+                )}
+                {showCsvSchema && (
+                  <Row>
+                    <Col span={24}>
+                      <Button
+                        icon={<CopyOutlined />}
+                        title={t('Use Inferred Schema')}
+                        onClick={useCsvSchema}
+                      />
+                    </Col>
+                  </Row>
+                )}
+              </>
             )}
             <Row>
               <Col span={24}>

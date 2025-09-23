@@ -455,8 +455,9 @@ def execute_sql_statements(  # noqa: C901
     logger.info("Query %s: Set query to 'running'", str(query_id))
     query.status = QueryStatus.RUNNING
     query.start_running_time = now_as_float()
+    logging.info("Pre commit")
     db.session.commit()
-
+    logging.info("Post commit")
     # Should we create a table or view from the select?
     if (
         query.select_as_cta
@@ -492,11 +493,13 @@ def execute_sql_statements(  # noqa: C901
             )
         )
 
+    logging.info("Pre loop")
     with database.get_raw_connection(
         catalog=query.catalog,
         schema=query.schema,
         source=QuerySource.SQL_LAB,
     ) as conn:
+        logging.info("in loop")
         # Sharing a single connection and cursor across the
         # execution of all statements (if many)
         cursor = conn.cursor()
