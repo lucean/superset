@@ -165,8 +165,6 @@ TALISMAN_CONFIG = {
         "worker-src": ["'self'", "blob:"],
         "connect-src": [
             "'self'",
-            "https://api.mapbox.com",
-            "https://events.mapbox.com",
         ],
         "object-src": "'none'",
         "style-src": [
@@ -179,6 +177,22 @@ TALISMAN_CONFIG = {
     "force_https": False,
     "session_cookie_secure": False,
 }
+
+def add_custom_bootstrap(data: dict) -> dict:
+    # Put custom values under `conf` to match what the frontend already reads
+    conf = data.setdefault("conf", {})
+    conf["SUPERSET_EXTRA"] = {
+        "enabled": True,
+        "uploadDatabaseName": os.environ.get("SUPERSET_UPLOAD_DATABASE_NAME", "unknown"),
+        "maxFileSizeMB": 512,
+    }
+
+    # You can override other existing fields too (example: locale)
+    # data["locale"] = "pt_BR"
+
+    return data
+
+COMMON_BOOTSTRAP_OVERRIDES_FUNC = add_custom_bootstrap
 
 import contextlib
 from flask import Flask

@@ -40,7 +40,7 @@ COPY docker/ /app/docker/
 ARG NPM_BUILD_CMD="build"
 
 # Install system dependencies required for node-gyp
-RUN /app/docker/apt-install.sh build-essential python3 zstd
+RUN /app/docker/apt-install.sh build-essential python3 zstd ssh
 
 # Define environment variables for frontend build
 ENV BUILD_CMD=${NPM_BUILD_CMD} \
@@ -78,11 +78,16 @@ COPY superset-frontend /app/superset-frontend
 ######################################################################
 FROM superset-node-ci AS superset-node
 
+ARG REACT_APP_UPLOAD_DATABASE_NAME
+ENV REACT_APP_UPLOAD_DATABASE_NAME=${REACT_APP_UPLOAD_DATABASE_NAME}
+
+RUN env
+
 # Build the frontend if not in dev mode
 RUN --mount=type=cache,target=/root/.npm \
     if [ "$DEV_MODE" = "false" ]; then \
         echo "Running 'npm run ${BUILD_CMD}'"; \
-        npm run ${BUILD_CMD}; \
+        REACT_APP_UPLOAD_DATABASE_NAME=${REACT_APP_UPLOAD_DATABASE_NAME} npm run ${BUILD_CMD}; \
     else \
         echo "Skipping 'npm run ${BUILD_CMD}' in dev mode"; \
     fi;
@@ -189,6 +194,7 @@ COPY --chmod=755 ./docker/entrypoints/run-server.sh /usr/bin/
 
 # Some debian libs
 RUN /app/docker/apt-install.sh \
+      build-essential \
       curl \
       libsasl2-dev \
       libsasl2-modules-gssapi-mit \

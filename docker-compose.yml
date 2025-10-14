@@ -29,12 +29,12 @@ x-superset-volumes: &superset-volumes
   - ./superset-frontend:/app/superset-frontend
   - superset_home:/app/superset_home
   - ./tests:/app/tests
+  - ~/.ssh:/root/.ssh:ro
 
 x-common-build: &common-build
   context: .
   target: ${SUPERSET_BUILD_TARGET:-dev} # can use `dev` (default) or `lean`
-  cache_from:
-    - apache/superset-cache:3.10-slim-bookworm
+  cache_from: []
   args:
     DEV_MODE: "true"
     INCLUDE_CHROMIUM: ${INCLUDE_CHROMIUM:-false}
@@ -76,6 +76,15 @@ services:
       - db_home:/var/lib/postgresql/data
       - ./docker/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
 
+  oracledb:
+    image: oracle/database:19.3.0-ee
+    container_name: oracledb
+    ports:
+      - 1521:1521
+      - 5500:5500
+    volumes:
+      - oracle:/opt/oracle/oradata
+
   superset:
     env_file:
       - path: docker/.env # default
@@ -99,8 +108,10 @@ services:
         condition: service_completed_successfully
     volumes: *superset-volumes
     environment:
+      GIT_SSH_COMMAND: "ssh -o StrictHostKeyChecking=yes"
       CYPRESS_CONFIG: "${CYPRESS_CONFIG:-}"
       SUPERSET_LOG_LEVEL: "${SUPERSET_LOG_LEVEL:-info}"
+      SUPERSET_UPLOAD_DATABASE_NAME: "examples"
 
   superset-websocket:
     container_name: superset_websocket
@@ -175,6 +186,7 @@ services:
       BUILD_SUPERSET_FRONTEND_IN_DOCKER: true
       NPM_RUN_PRUNE: false
       SCARF_ANALYTICS: "${SCARF_ANALYTICS:-}"
+      REACT_APP_UPLOAD_DATABASE_NAME: Oracle
       # configuring the dev-server to use the host.docker.internal to connect to the backend
       superset: "http://host.docker.internal:8088"
     ports:
@@ -272,4 +284,6 @@ volumes:
   db_home:
     external: false
   redis:
+    external: false
+  oracle:
     external: false

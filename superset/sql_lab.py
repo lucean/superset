@@ -50,6 +50,7 @@ from superset.exceptions import (
     SupersetParseError,
 )
 from superset.extensions import celery_app, event_logger
+from superset.function_decorator import add_username_to_results_backend
 from superset.models.core import Database
 from superset.models.sql_lab import Query
 from superset.result_set import SupersetResultSet
@@ -408,6 +409,7 @@ def _serialize_and_expand_data(
     return (data, selected_columns, all_columns, expanded_columns)
 
 
+@add_username_to_results_backend
 def execute_sql_statements(  # noqa: C901
     # pylint: disable=too-many-arguments, too-many-locals, too-many-statements, too-many-branches
     query_id: int,

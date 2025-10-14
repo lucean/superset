@@ -62,6 +62,7 @@ import {
 } from './styles';
 import ColumnsPreview from './ColumnsPreview';
 import StyledFormItemWithTip from './StyledFormItemWithTip';
+import getBootstrapData from '../../../utils/getBootstrapData';
 
 type UploadType = 'csv' | 'excel' | 'columnar';
 
@@ -224,7 +225,7 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
   type = 'csv',
 }) => {
   const [form] = AntdForm.useForm();
-  const uploadDatabaseName = process.env.UPLOAD_DATABASE_NAME || 'examples';
+  const [uploadDatabaseName, setUploadDatabaseName] = useState<string>('');
   const [uploadDatabaseId, setUploadDatabaseId] = useState<number>(-1);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
@@ -243,6 +244,17 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
   const [csvText, setCsvText] = useState<string>('');
   const [csvSchema, setCsvSchema] = useState<{} | null>(null);
   const [columnDataTypes, setColumnDataTypes] = useState<string>('');
+
+  useEffect(() => {
+    const bootstrapData = getBootstrapData();
+    console.log('Bootstrap config:', bootstrapData?.common?.conf);
+
+    const supersetExtra = bootstrapData?.common?.conf?.SUPERSET_EXTRA;
+    console.log('Superset extra:', supersetExtra);
+
+    console.log('Setting database name: ', supersetExtra?.uploadDatabaseName);
+    setUploadDatabaseName(supersetExtra?.uploadDatabaseName);
+  }, []);
 
   const isObject = (value: unknown): value is Record<string, unknown> =>
     value !== null && typeof value === 'object' && !Array.isArray(value);
