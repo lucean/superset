@@ -1547,7 +1547,14 @@ DEFAULT_RELATIVE_END_TIME = "today"
 SQL_VALIDATORS_BY_ENGINE = {
     "presto": "PrestoDBSQLValidator",
     "postgresql": "PostgreSQLValidator",
+    "mysql": "MySQLValidator",
 }
+
+# A mapping from the named SQLValidator implementations and the
+# classes which provide the validation. Implementations are provided
+# for the PrestoDBSQLValidator and PostgreSQLValidator in the
+# sql_validators module
+SQL_VALIDATORS_BY_NAME = {}
 
 # A list of preferred databases, in order. These databases will be
 # displayed prominently in the "Add Database" dialog. You should

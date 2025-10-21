@@ -19,9 +19,13 @@ from typing import Optional
 from . import base, postgres, presto_db
 from .base import SQLValidationAnnotation  # noqa: F401
 
+from superset.config import SQL_VALIDATORS_BY_NAME
+
 
 def get_validator_by_name(name: str) -> Optional[type[base.BaseSQLValidator]]:
-    return {
+    provided_implementations = {
         "PrestoDBSQLValidator": presto_db.PrestoDBSQLValidator,
         "PostgreSQLValidator": postgres.PostgreSQLValidator,
-    }.get(name)
+    }
+
+    return { **provided_implementations, **SQL_VALIDATORS_BY_NAME }.get(name)
