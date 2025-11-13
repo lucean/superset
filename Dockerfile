@@ -44,7 +44,7 @@ RUN /app/docker/apt-install.sh build-essential python3 zstd ssh
 
 # Define environment variables for frontend build
 ENV BUILD_CMD=${NPM_BUILD_CMD} \
-    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+  PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
 # Run the frontend memory monitoring script
 RUN /app/docker/frontend-mem-nag.sh
@@ -53,7 +53,7 @@ WORKDIR /app/superset-frontend
 
 # Create necessary folders to avoid errors in subsequent steps
 RUN mkdir -p /app/superset/static/assets \
-             /app/superset/translations
+  /app/superset/translations
 
 # Mount package files and install dependencies if not in dev mode
 # NOTE: we mount packages and plugins as they are referenced in package.json as workspaces
@@ -61,14 +61,14 @@ RUN mkdir -p /app/superset/static/assets \
 # as the full content of these folders don't change, yielding a decent cache reuse rate.
 # Note that's it's not possible selectively COPY of mount using blobs.
 RUN --mount=type=bind,source=./superset-frontend/package.json,target=./package.json \
-    --mount=type=bind,source=./superset-frontend/package-lock.json,target=./package-lock.json \
-    --mount=type=cache,target=/root/.cache \
-    --mount=type=cache,target=/root/.npm \
-    if [ "$DEV_MODE" = "false" ]; then \
-        npm ci; \
-    else \
-        echo "Skipping 'npm ci' in dev mode"; \
-    fi
+  --mount=type=bind,source=./superset-frontend/package-lock.json,target=./package-lock.json \
+  --mount=type=cache,target=/root/.cache \
+  --mount=type=cache,target=/root/.npm \
+  if [ "$DEV_MODE" = "false" ]; then \
+  npm ci; \
+  else \
+  echo "Skipping 'npm ci' in dev mode"; \
+  fi
 
 # Runs the webpack build process
 COPY superset-frontend /app/superset-frontend
@@ -85,22 +85,22 @@ RUN env
 
 # Build the frontend if not in dev mode
 RUN --mount=type=cache,target=/root/.npm \
-    if [ "$DEV_MODE" = "false" ]; then \
-        echo "Running 'npm run ${BUILD_CMD}'"; \
-        REACT_APP_UPLOAD_DATABASE_NAME=${REACT_APP_UPLOAD_DATABASE_NAME} npm run ${BUILD_CMD}; \
-    else \
-        echo "Skipping 'npm run ${BUILD_CMD}' in dev mode"; \
-    fi;
+  if [ "$DEV_MODE" = "false" ]; then \
+  echo "Running 'npm run ${BUILD_CMD}'"; \
+  REACT_APP_UPLOAD_DATABASE_NAME=${REACT_APP_UPLOAD_DATABASE_NAME} npm run ${BUILD_CMD}; \
+  else \
+  echo "Skipping 'npm run ${BUILD_CMD}' in dev mode"; \
+  fi;
 
 # Copy translation files
 COPY superset/translations /app/superset/translations
 
 # Build the frontend if not in dev mode
 RUN if [ "$BUILD_TRANSLATIONS" = "true" ]; then \
-        npm run build-translation; \
-    fi; \
-    rm -rf /app/superset/translations/*/*/*.po; \
-    rm -rf /app/superset/translations/*/*/*.mo;
+  npm run build-translation; \
+  fi; \
+  rm -rf /app/superset/translations/*/*/*.po; \
+  rm -rf /app/superset/translations/*/*/*.mo;
 
 
 ######################################################################
@@ -113,8 +113,8 @@ ENV SUPERSET_HOME=${SUPERSET_HOME}
 
 RUN mkdir -p $SUPERSET_HOME
 RUN useradd --user-group -d ${SUPERSET_HOME} -m --no-log-init --shell /bin/bash superset \
-    && chmod -R 1777 $SUPERSET_HOME \
-    && chown -R superset:superset $SUPERSET_HOME
+  && chmod -R 1777 $SUPERSET_HOME \
+  && chown -R superset:superset $SUPERSET_HOME
 
 # Some bash scripts needed throughout the layers
 COPY --chmod=755 docker/*.sh /app/docker/
@@ -136,14 +136,14 @@ ENV BUILD_TRANSLATIONS=${BUILD_TRANSLATIONS}
 # Install Python dependencies using docker/pip-install.sh
 COPY requirements/translations.txt requirements/
 RUN --mount=type=cache,target=/root/.cache/uv \
-    . /app/.venv/bin/activate && /app/docker/pip-install.sh --requires-build-essential -r requirements/translations.txt
+  . /app/.venv/bin/activate && /app/docker/pip-install.sh --requires-build-essential -r requirements/translations.txt
 
 COPY superset/translations/ /app/translations_mo/
 RUN if [ "$BUILD_TRANSLATIONS" = "true" ]; then \
-        pybabel compile -d /app/translations_mo | true; \
-    fi; \
-    rm -f /app/translations_mo/*/*/*.po; \
-    rm -f /app/translations_mo/*/*/*.json;
+  pybabel compile -d /app/translations_mo | true; \
+  fi; \
+  rm -f /app/translations_mo/*/*/*.po; \
+  rm -f /app/translations_mo/*/*/*.json;
 
 ######################################################################
 # Python APP common layer
@@ -151,11 +151,11 @@ RUN if [ "$BUILD_TRANSLATIONS" = "true" ]; then \
 FROM python-base AS python-common
 
 ENV SUPERSET_HOME="/app/superset_home" \
-    HOME="/app/superset_home" \
-    SUPERSET_ENV="production" \
-    FLASK_APP="superset.app:create_app()" \
-    PYTHONPATH="/app/pythonpath" \
-    SUPERSET_PORT="8088"
+  HOME="/app/superset_home" \
+  SUPERSET_ENV="production" \
+  FLASK_APP="superset.app:create_app()" \
+  PYTHONPATH="/app/pythonpath" \
+  SUPERSET_PORT="8088"
 
 # Copy the entrypoints, make them executable in userspace
 COPY --chmod=755 docker/entrypoints /app/docker/entrypoints
@@ -163,26 +163,26 @@ COPY --chmod=755 docker/entrypoints /app/docker/entrypoints
 WORKDIR /app
 # Set up necessary directories and user
 RUN mkdir -p \
-      ${PYTHONPATH} \
-      superset/static \
-      requirements \
-      superset-frontend \
-      apache_superset.egg-info \
-      requirements \
-    && touch superset/static/version_info.json
+  ${PYTHONPATH} \
+  superset/static \
+  requirements \
+  superset-frontend \
+  apache_superset.egg-info \
+  requirements \
+  && touch superset/static/version_info.json
 
 # Install Playwright and optionally setup headless browsers
 ARG INCLUDE_CHROMIUM="true"
 ARG INCLUDE_FIREFOX="false"
 RUN --mount=type=cache,target=${SUPERSET_HOME}/.cache/uv \
-    if [ "$INCLUDE_CHROMIUM" = "true" ] || [ "$INCLUDE_FIREFOX" = "true" ]; then \
-        uv pip install playwright && \
-        playwright install-deps && \
-        if [ "$INCLUDE_CHROMIUM" = "true" ]; then playwright install chromium; fi && \
-        if [ "$INCLUDE_FIREFOX" = "true" ]; then playwright install firefox; fi; \
-    else \
-        echo "Skipping browser installation"; \
-    fi
+  if [ "$INCLUDE_CHROMIUM" = "true" ] || [ "$INCLUDE_FIREFOX" = "true" ]; then \
+  uv pip install playwright && \
+  playwright install-deps && \
+  if [ "$INCLUDE_CHROMIUM" = "true" ]; then playwright install chromium; fi && \
+  if [ "$INCLUDE_FIREFOX" = "true" ]; then playwright install firefox; fi; \
+  else \
+  echo "Skipping browser installation"; \
+  fi
 
 # Copy required files for Python build
 COPY pyproject.toml setup.py MANIFEST.in README.md ./
@@ -194,13 +194,13 @@ COPY --chmod=755 ./docker/entrypoints/run-server.sh /usr/bin/
 
 # Some debian libs
 RUN /app/docker/apt-install.sh \
-      build-essential \
-      curl \
-      libsasl2-dev \
-      libsasl2-modules-gssapi-mit \
-      libpq-dev \
-      libecpg-dev \
-      libldap2-dev
+  build-essential \
+  curl \
+  libsasl2-dev \
+  libsasl2-modules-gssapi-mit \
+  libpq-dev \
+  libecpg-dev \
+  libldap2-dev
 
 # Copy compiled things from previous stages
 COPY --from=superset-node /app/superset/static/assets superset/static/assets
@@ -226,10 +226,10 @@ FROM python-common AS lean
 # Install Python dependencies using docker/pip-install.sh
 COPY requirements/base.txt requirements/
 RUN --mount=type=cache,target=${SUPERSET_HOME}/.cache/uv \
-    /app/docker/pip-install.sh --requires-build-essential -r requirements/base.txt
+  /app/docker/pip-install.sh --requires-build-essential -r requirements/base.txt
 # Install the superset package
 RUN --mount=type=cache,target=${SUPERSET_HOME}/.cache/uv \
-    uv pip install .
+  uv pip install .
 RUN python -m compileall /app/superset
 
 USER superset
@@ -241,18 +241,21 @@ FROM python-common AS dev
 
 # Debian libs needed for dev
 RUN /app/docker/apt-install.sh \
-    git \
-    pkg-config \
-    default-libmysqlclient-dev
+  git \
+  pkg-config \
+  default-libmysqlclient-dev \
+  build-essential \
+  gcc \
+  python3-dev
 
 # Copy development requirements and install them
 COPY requirements/*.txt requirements/
 # Install Python dependencies using docker/pip-install.sh
 RUN --mount=type=cache,target=${SUPERSET_HOME}/.cache/uv \
-    /app/docker/pip-install.sh --requires-build-essential -r requirements/development.txt
+  /app/docker/pip-install.sh --requires-build-essential -r requirements/development.txt
 # Install the superset package
 RUN --mount=type=cache,target=${SUPERSET_HOME}/.cache/uv \
-    uv pip install .
+  uv pip install .
 
 RUN uv pip install .[postgres]
 RUN python -m compileall /app/superset

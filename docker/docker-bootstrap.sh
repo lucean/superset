@@ -61,8 +61,8 @@ fi
 
 /app/docker/apt-install.sh ssh
 
-pip install oracledb
-pip install git+ssh://tom818@192.168.0.3/volume1/git/oraclecache@main
+#pip install oracledb
+#pip install git+ssh://tom818@192.168.0.3/volume1/git/oraclecache@main
 
 case "${1}" in
   worker)

@@ -97,3 +97,21 @@ export const antDModalStyles = (theme: SupersetTheme) => css`
     vertical-align: bottom;
   }
 `;
+
+export const antDTourStyles = (theme: SupersetTheme) => css`
+  .superset-tour-default.antd5-tour .antd5-tour-inner {
+    background: #0c3a09;
+    border-radius: 8px;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+    padding: 16px 24px;
+  }
+
+  .superset-tour-default.antd5-tour .antd5-tour-header,
+  .superset-tour-default.antd5-tour .antd5-tour-title,
+  .superset-tour-default.antd5-tour .antd5-tour-description {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+      Helvetica, Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.5715;
+  }
+`;
