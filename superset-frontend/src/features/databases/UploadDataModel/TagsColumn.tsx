@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react';
 import { styled, useTheme } from '@superset-ui/core';
-import { Badge, Button, Select, Tooltip } from 'antd';
+import { Badge, Select, Tooltip } from 'antd';
 import TagType from 'src/types/TagType';
-import { PANDAS_TYPES, PandasType, TYPE_LABELS } from './misc';
+import { PANDAS_TYPES, PandasType, TagsColumnRefs, TYPE_LABELS } from './misc';
+import { Button } from '../../../components';
+import Icons from '../../../components/Icons';
 
 export type ColumnTag = TagType & {
   originalType: PandasType;
@@ -19,9 +21,11 @@ export type TagsColumnProps = {
 
   excludedColumns?: string[];
   onExcludedColumnsChange?: (excluded: string[]) => void;
+
+  refs: TagsColumnRefs;
 };
 
-const PILL_WIDTH_PX = 220;
+const PILL_WIDTH_PX = 250;
 const TYPE_CHIP_WIDTH_PX = 95;
 const ACTION_CHIP_WIDTH_PX = 28;
 
@@ -50,10 +54,9 @@ const Pill = styled.div`
   align-items: stretch;
   width: ${PILL_WIDTH_PX}px;
   border-radius: 999px;
-  font-size: ${({ theme }) => theme.typography.sizes.s};
+  font-size: ${({ theme }) => theme.typography.sizes.m};
   color: ${({ theme }) => theme.colors.grayscale.dark2};
-  background: ${({ theme }) =>
-    theme.colors.grayscale?.light2 || theme.colors.grayscale?.base};
+  background: ${({ theme }) => theme.colors.grayscale?.light4};
   box-sizing: border-box;
   overflow: hidden;
 `;
@@ -62,7 +65,8 @@ const PillName = styled.span`
   flex: 1 1 auto;
   min-width: 0;
   padding: 2px 10px;
-  font-weight: 600;
+  font-weight: 400;
+  font-size: ${({ theme }) => theme.typography.sizes.m};
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -127,6 +131,7 @@ const ActionChip = styled.button`
 const ControlPill = styled(Pill)`
   cursor: pointer;
   user-select: none;
+  width: 40px;
 `;
 
 const getTypeColor = (type: PandasType | undefined, theme: any): string => {
@@ -138,17 +143,37 @@ const getTypeColor = (type: PandasType | undefined, theme: any): string => {
     '#e0e0e0';
 
   const map: Record<PandasType, string> = {
-    int64: colors.success?.light2 || fallback,
-    float64: colors.primary?.light2 || fallback,
-    bool: colors.warning?.light2 || fallback,
+    int64: colors.success?.light1 || fallback,
+    float64: colors.primary?.light1 || fallback,
+    bool: colors.warning?.light1 || fallback,
     string: colors.secondary?.light2 || fallback,
-    object: colors.info?.light2 || fallback,
-    'datetime64[ns]': colors.error?.light2 || fallback,
+    object: colors.info?.light1 || fallback,
+    'datetime64[ns]': colors.error?.light1 || fallback,
     null: fallback,
   };
 
   return type ? map[type] || fallback : fallback;
 };
+
+const StyledUpTriangle = styled(Icons.CaretDown)`
+  &:first-of-type {
+    margin: 0;
+    display: flex;
+    svg {
+      margin: 0;
+    }
+  }
+`;
+
+const StyledDownTriangle = styled(Icons.CaretUp)`
+  &:first-of-type {
+    margin: 0;
+    display: flex;
+    svg {
+      margin: 0;
+    }
+  }
+`;
 
 const TagsColumn = ({
   tags = [],
@@ -158,11 +183,10 @@ const TagsColumn = ({
   hasOverrides = false,
   excludedColumns,
   onExcludedColumnsChange,
+  refs,
 }: TagsColumnProps) => {
   const theme = useTheme();
 
-  // When defined, we show `visibleCount - 1` tags and a `+N...` pill.
-  // When undefined, we show all tags and a simple `...` pill.
   const [visibleCount, setVisibleCount] = useState<number | undefined>(maxTags);
 
   const excludedSet = useMemo(
@@ -178,11 +202,6 @@ const TagsColumn = ({
   const visibleTags = useMemo(
     () => (visibleCount ? tags.slice(0, visibleCount - 1) : tags),
     [tags, visibleCount],
-  );
-
-  const hiddenCount = useMemo(
-    () => (visibleCount ? tags.length - visibleCount + 1 : 0),
-    [tags.length, visibleCount],
   );
 
   const toggleCollapse = () =>
@@ -209,7 +228,7 @@ const TagsColumn = ({
 
   return (
     <TagsDiv className="tag-list">
-      {visibleTags.map(tag => {
+      {visibleTags.map((tag, index) => {
         const { id, name, effectiveType, modified } = tag;
         const key = id != null ? String(id) : name;
         const isExcluded = excludedSet.has(name);
@@ -221,11 +240,13 @@ const TagsColumn = ({
               style={
                 isExcluded ? { textDecoration: 'line-through' } : undefined
               }
+              ref={index === 0 ? refs.pillName : undefined}
             >
               {name}
             </PillName>
             <TypeChip
               style={{ backgroundColor: getTypeColor(effectiveType, theme) }}
+              ref={index === 0 ? refs.typeChip : undefined}
             >
               <Select<PandasType>
                 size="small"
@@ -255,6 +276,7 @@ const TagsColumn = ({
                     setExcluded(name, !isExcluded);
                   }}
                   onKeyDown={e => onActionKey(e, name, isExcluded)}
+                  ref={index === 0 ? refs.actionChip : undefined}
                 >
                   {isExcluded ? '✓' : '×'}
                 </ActionChip>
@@ -279,15 +301,31 @@ const TagsColumn = ({
       {maxTags && tags.length > maxTags && (
         <RowWrapper>
           <ControlPill onClick={toggleCollapse}>
-            <PillName>{isCollapsed ? `+${hiddenCount}...` : '...'}</PillName>
+            <PillName
+              style={{
+                flex: '0 0 auto', // 👈 prevents stretching
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '100%',
+              }}
+            >
+              {isCollapsed ? (
+                <StyledUpTriangle iconSize="xl" />
+              ) : (
+                <StyledDownTriangle iconSize="xl" />
+              )}
+            </PillName>
           </ControlPill>
         </RowWrapper>
       )}
 
       <FooterBar>
-        <Button size="small" onClick={onResetTypes} disabled={!hasOverrides}>
-          Reset
-        </Button>
+        <div ref={refs.resetButton}>
+          <Button size="small" onClick={onResetTypes} disabled={!hasOverrides}>
+            Reset
+          </Button>
+        </div>
       </FooterBar>
     </TagsDiv>
   );

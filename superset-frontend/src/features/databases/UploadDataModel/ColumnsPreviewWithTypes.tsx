@@ -1,11 +1,12 @@
 import { FC, useMemo, useState } from 'react';
 import { styled, t } from '@superset-ui/core';
 import TagsColumn, { ColumnTag } from './TagsColumn';
-import { PandasType } from './misc';
+import { PandasType, TagsColumnRefs } from './misc';
 
 interface ColumnsPreviewWithTypeProps {
   schema: Record<string, PandasType>;
   maxColumnsToShow?: number;
+  refs: TagsColumnRefs;
 }
 
 export const StyledDivContainer = styled.div``;
@@ -21,6 +22,7 @@ const SecondaryText = styled.span`
 const ColumnsPreviewWithType: FC<ColumnsPreviewWithTypeProps> = ({
   schema,
   maxColumnsToShow = 4,
+  refs,
 }) => {
   const [overrides, setOverrides] = useState<Record<string, PandasType>>({});
   const [excludedColumns, setExcludedColumns] = useState<string[]>([]);
@@ -33,7 +35,7 @@ const ColumnsPreviewWithType: FC<ColumnsPreviewWithTypeProps> = ({
         const modified = override !== undefined && override !== originalType;
         return {
           name,
-          type: effectiveType, // TagType.type
+          type: effectiveType,
           originalType,
           effectiveType,
           modified,
@@ -63,6 +65,7 @@ const ColumnsPreviewWithType: FC<ColumnsPreviewWithTypeProps> = ({
           onTypeChange={handleTypeChange}
           onResetTypes={handleResetTypes}
           hasOverrides={hasOverrides}
+          refs={refs}
         />
       )}
     </StyledDivContainer>

@@ -1,4 +1,12 @@
 import { csvParse, autoType } from 'd3-dsv';
+import { MutableRefObject } from 'react';
+
+export type TagsColumnRefs = {
+  pillName: MutableRefObject<any>;
+  typeChip: MutableRefObject<any>;
+  actionChip: MutableRefObject<any>;
+  resetButton: MutableRefObject<any>;
+};
 
 export type PandasType =
   | 'int64'

@@ -29,11 +29,11 @@ import {
 import {
   ClientErrorObject,
   getClientErrorObject,
-  styled,
   SupersetClient,
   SupersetTheme,
   t,
   useTheme,
+  css,
 } from '@superset-ui/core';
 import Modal from 'src/components/Modal';
 import Button from 'src/components/Button';
@@ -52,7 +52,8 @@ import { Input, InputNumber } from 'src/components/Input';
 import rison from 'rison';
 import { UploadChangeParam, UploadFile } from 'antd/lib/upload/interface';
 import withToasts from 'src/components/MessageToasts/withToasts';
-import { Tour, TourProps } from 'antd-v5';
+import { TourProps } from 'antd-v5';
+import { Global } from '@emotion/react';
 import {
   antdCollapseStyles,
   antDModalNoPaddingStyles,
@@ -64,12 +65,8 @@ import {
 import StyledFormItemWithTip from './StyledFormItemWithTip';
 import getBootstrapData from '../../../utils/getBootstrapData';
 import ColumnsPreviewWithType from './ColumnsPreviewWithTypes';
-import { inferSchema } from './misc';
-import Icons from '../../../components/Icons';
-import { css } from '@superset-ui/core';
-import { Global } from '@emotion/react';
+import { inferSchema, TagsColumnRefs } from './misc';
 import ModalFooterWithTour from './ModalFooterWithTour';
-import { ModalTourConfigMap, useModalTours } from './useModalTours';
 
 type UploadType = 'csv' | 'excel' | 'columnar';
 
@@ -248,6 +245,75 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
   const [csvText, setCsvText] = useState<string>('');
   const [csvSchema, setCsvSchema] = useState<{}>({});
   const [columnDataTypes, setColumnDataTypes] = useState<string>('');
+
+  const chooseFileRef = useRef(null);
+  const previewColumnsRef = useRef(null);
+  const tableNameRef = useRef(null);
+
+  const subRefs: TagsColumnRefs = {
+    pillName: useRef(null),
+    typeChip: useRef(null),
+    actionChip: useRef(null),
+    resetButton: useRef(null),
+  };
+
+  const preUploadSteps: TourProps['steps'] = [
+    {
+      title: 'Choose file',
+      description: 'Choose a file to upload.',
+      target: () => chooseFileRef.current,
+      placement: 'bottomLeft',
+    },
+    {
+      title: 'Preview data',
+      description:
+        'When a file has been uploaded, it is inspected to attempt to assign types to the columns in the file. ' +
+        "Click 'Help' when the file is loaded for more contextual help regarding the data preview section.",
+      target: () => previewColumnsRef.current,
+      placement: 'bottomLeft',
+    },
+    {
+      title: 'Table name',
+      description:
+        'The table name is automatically set to the name of the uploaded file (in all lowercase letters). Table names are case sensitive, ' +
+        'so combining upper and lower case letters in a table name will require using quotes when referencing the table in queries.',
+      target: () => tableNameRef.current,
+      placement: 'bottomLeft',
+    },
+  ];
+
+  const postUploadSteps: TourProps['steps'] = [
+    {
+      title: 'Previewing the data',
+      description:
+        'The columns found in the data file are shown, along with their estimated types.',
+      target: () => subRefs.pillName.current,
+      placement: 'bottomLeft',
+    },
+    {
+      title: 'Changing column types',
+      description:
+        'Use the drop down to change the type of a column. Choosing an invalid type may cause issues when ' +
+        'uploading the data file, so care should be taken to select an appropriate type for your data. Rows which have ' +
+        'been modified are indicated with a red dot.',
+      target: () => subRefs.typeChip.current,
+      placement: 'bottomLeft',
+    },
+    {
+      title: 'Excluding columns',
+      description:
+        'By default, all columns are selected for upload. Use the tick and cross icons for each column to include or exclude them from the final table.',
+      target: () => subRefs.actionChip.current,
+      placement: 'bottomLeft',
+    },
+    {
+      title: 'Start over',
+      description:
+        "If you're unhappy with your changes, and would like to revert back to the original settings, use the Reset button.",
+      target: () => subRefs.resetButton.current,
+      placement: 'bottomLeft',
+    },
+  ];
 
   useEffect(() => {
     const bootstrapData = getBootstrapData();
@@ -618,7 +684,6 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
   };
 
   const onClose = () => {
-    console.log('example, id: ', getDatabaseIdForName('example'));
     clearModal();
     onHide();
   };
@@ -756,63 +821,6 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
   };
 
   const theme = useTheme();
-
-  interface UploadModalState {
-    hasPreview: boolean;
-  }
-
-  // Layout / behaviour state
-  const [previewState, setPreviewState] = useState<any | null>(null);
-  const hasPreview = !!previewState;
-
-  const modalState: UploadModalState = { hasPreview };
-
-  const chooseFileRef = useRef(null);
-  const previewColumnsRef = useRef(null);
-  const tableNameRef = useRef(null);
-
-  // 1) Build the tours map *here* (where you have the refs)
-  const modalTours = useMemo(
-    () =>
-      ({
-        preUpload: {
-          rootClassName: 'superset-upload-tour',
-          getSteps: (state: UploadModalState): TourProps['steps'] => [
-            {
-              title: 'Choose file',
-              description: 'Choose a file to upload.',
-              target: () => chooseFileRef.current,
-              placement: 'bottomLeft',
-            },
-            {
-              title: 'Preview data',
-              description:
-                'When a file has been uploaded, it is inspected to attempt to assign types to the columns in the file. ' +
-                "Click 'Help' when the file is loaded for more contextual help regarding the data preview section.",
-              target: () => previewColumnsRef.current,
-              placement: 'bottomLeft',
-            },
-            {
-              title: 'Table name',
-              description:
-                'The table name is automatically set to the name of the uploaded file (in all lowercase letters). Table names are case sensitive, ' +
-                'so combining upper and lower case letters in a table name will require using quotes when referencing the table in queries.',
-              target: () => tableNameRef.current,
-              placement: 'bottomLeft',
-            },
-          ],
-          isAvailable: state => !state.hasPreview,
-        },
-      }) satisfies ModalTourConfigMap<UploadModalState>,
-    [],
-  );
-
-  const { openTour, TourElement } = useModalTours(modalTours, modalState);
-
-  const handleHelpClick = () => {
-    openTour(hasPreview ? 'preview' : 'upload');
-  };
-
   return (
     <>
       <Global
@@ -820,7 +828,7 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
           .superset-tour-default.antd5-tour .antd5-tour-inner {
             background-color: ${theme.colors.grayscale.light5};
             border-radius: 8px;
-            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+            box-shadow: 0 6px 16px ${theme.colors.grayscale.light2};
             padding: 16px 24px;
           }
 
@@ -852,22 +860,22 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
           antDModalStyles(theme),
           formStyles(theme),
         ]}
+        primaryButtonLoading={isLoading}
         name="database"
         data-test="upload-modal"
-        width="500px"
+        onHandledPrimaryAction={form.submit}
         onHide={onClose}
+        width="500px"
         primaryButtonName="Upload"
         centered
         show={show}
         title={<UploadTitle />}
         footer={
           <ModalFooterWithTour
-            onCancel={onClose}
-            onSubmit={form.submit}
+            form={form}
+            steps={fileList.length === 0 ? preUploadSteps : postUploadSteps}
+            onClose={onClose}
             isLoading={isLoading}
-            isSubmitDisabled={false}
-            onHelpClick={handleHelpClick}
-            TourElement={TourElement}
           />
         }
       >
@@ -927,7 +935,7 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
               </Row>
               <Row ref={previewColumnsRef}>
                 <Col span={24}>
-                  <ColumnsPreviewWithType schema={csvSchema} />
+                  <ColumnsPreviewWithType schema={csvSchema} refs={subRefs} />
                 </Col>
               </Row>
               <Row>
