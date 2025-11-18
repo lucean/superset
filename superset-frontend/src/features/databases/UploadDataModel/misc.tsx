@@ -24,7 +24,6 @@ export const PANDAS_TYPES: PandasType[] = [
   'string',
   'object',
   'datetime64[ns]',
-  'null',
 ];
 
 export const TYPE_LABELS: Record<PandasType, string> = {

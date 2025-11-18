@@ -242,9 +242,9 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
     useState<boolean>(false);
   const [previewUploadedFile, setPreviewUploadedFile] = useState<boolean>(true);
   const [fileLoading, setFileLoading] = useState<boolean>(false);
-  const [csvText, setCsvText] = useState<string>('');
   const [csvSchema, setCsvSchema] = useState<{}>({});
   const [columnDataTypes, setColumnDataTypes] = useState<string>('');
+  const [tableName, setTableName] = useState<string>('');
 
   const chooseFileRef = useRef(null);
   const previewColumnsRef = useRef(null);
@@ -449,13 +449,6 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
   }, [uploadDatabaseName]);
 
   useEffect(() => {
-    if (csvText !== null) {
-      const result = inferSchema(csvText);
-      setCsvSchema(result);
-    }
-  }, [csvText]);
-
-  useEffect(() => {
     const dataTypes: Record<string, string> = columnDataTypes
       ? JSON.parse(columnDataTypes)
       : {};
@@ -550,7 +543,6 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
     setFileLoading(false);
     setSheetsColumnNames({});
     setColumnDataTypes('');
-    setCsvText('');
     setCsvSchema({});
     form.resetFields();
   };
@@ -731,7 +723,6 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
     setFileList(fileList.filter(file => file.uid !== removedFile.uid));
     setColumns([]);
     setSheetNames([]);
-    setCsvText('');
     setCsvSchema({});
     form.setFieldsValue({ sheet_name: undefined });
     return false;
@@ -754,13 +745,18 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
       const reader = new FileReader();
       reader.onload = e => {
         const text = (e.target?.result as string) || '';
-        setCsvText(text);
+        const result = inferSchema(text);
+        setCsvSchema(result);
       };
       reader.onerror = () => {
         addDangerToast('Failed to read file.');
       };
       reader.readAsText(file);
     }
+
+    const withoutExt: string =
+      file.name.substring(0, file.name.lastIndexOf('.')) || file.name;
+    setTableName(withoutExt);
 
     setFileList([
       {
@@ -773,6 +769,10 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
     }
     await loadFileMetadata(info.file.originFileObj);
   };
+
+  useEffect(() => {
+    form.setFieldsValue({ table_name: tableName });
+  }, [form, tableName]);
 
   useEffect(() => {
     if (
@@ -935,7 +935,11 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
               </Row>
               <Row ref={previewColumnsRef}>
                 <Col span={24}>
-                  <ColumnsPreviewWithType schema={csvSchema} refs={subRefs} />
+                  <ColumnsPreviewWithType
+                    schema={csvSchema}
+                    show={show}
+                    refs={subRefs}
+                  />
                 </Col>
               </Row>
               <Row>

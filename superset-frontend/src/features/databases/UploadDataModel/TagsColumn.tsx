@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { styled, useTheme } from '@superset-ui/core';
 import { Badge, Select, Tooltip } from 'antd';
 import TagType from 'src/types/TagType';
@@ -14,9 +14,10 @@ export type ColumnTag = TagType & {
 
 export type TagsColumnProps = {
   tags?: ColumnTag[];
+  show: boolean;
   maxTags?: number;
   onTypeChange?: (name: string, newType: PandasType) => void;
-  onResetTypes?: () => void;
+  onReset?: () => void;
   hasOverrides?: boolean;
 
   excludedColumns?: string[];
@@ -147,13 +148,19 @@ const getTypeColor = (type: PandasType | undefined, theme: any): string => {
     float64: colors.primary?.light1 || fallback,
     bool: colors.warning?.light1 || fallback,
     string: colors.secondary?.light2 || fallback,
-    object: colors.info?.light1 || fallback,
-    'datetime64[ns]': colors.error?.light1 || fallback,
+    object: fallback,
+    'datetime64[ns]': colors.info?.light1 || fallback,
     null: fallback,
   };
 
   return type ? map[type] || fallback : fallback;
 };
+
+const StyledBadge = styled(Badge)`
+  .ant-badge-dot {
+    background: ${({ theme }) => theme.colors.warning.dark2};
+  }
+`;
 
 const StyledUpTriangle = styled(Icons.CaretDown)`
   &:first-of-type {
@@ -177,9 +184,10 @@ const StyledDownTriangle = styled(Icons.CaretUp)`
 
 const TagsColumn = ({
   tags = [],
+  show,
   maxTags,
   onTypeChange,
-  onResetTypes,
+  onReset,
   hasOverrides = false,
   excludedColumns,
   onExcludedColumnsChange,
@@ -203,6 +211,13 @@ const TagsColumn = ({
     () => (visibleCount ? tags.slice(0, visibleCount - 1) : tags),
     [tags, visibleCount],
   );
+
+  useEffect(() => {
+    if (!show) {
+      if (!onExcludedColumnsChange) return;
+      onExcludedColumnsChange(Array.from(new Set()));
+    }
+  }, [onExcludedColumnsChange, show]);
 
   const toggleCollapse = () =>
     setVisibleCount(current => (current ? undefined : maxTags));
@@ -288,9 +303,9 @@ const TagsColumn = ({
         return (
           <RowWrapper key={key}>
             {modified ? (
-              <Badge dot color="processing" offset={[-4, 0]}>
+              <StyledBadge dot offset={[-4, 0]}>
                 {pill}
-              </Badge>
+              </StyledBadge>
             ) : (
               pill
             )}
@@ -303,7 +318,7 @@ const TagsColumn = ({
           <ControlPill onClick={toggleCollapse}>
             <PillName
               style={{
-                flex: '0 0 auto', // 👈 prevents stretching
+                flex: '0 0 auto',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -322,7 +337,7 @@ const TagsColumn = ({
 
       <FooterBar>
         <div ref={refs.resetButton}>
-          <Button size="small" onClick={onResetTypes} disabled={!hasOverrides}>
+          <Button size="small" onClick={onReset} disabled={!hasOverrides}>
             Reset
           </Button>
         </div>
