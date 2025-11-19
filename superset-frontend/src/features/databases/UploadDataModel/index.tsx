@@ -52,7 +52,7 @@ import { Input, InputNumber } from 'src/components/Input';
 import rison from 'rison';
 import { UploadChangeParam, UploadFile } from 'antd/lib/upload/interface';
 import withToasts from 'src/components/MessageToasts/withToasts';
-import { TourProps } from 'antd-v5';
+import { Alert, TourProps, TourStepProps } from 'antd-v5';
 import { Global } from '@emotion/react';
 import {
   antdCollapseStyles,
@@ -61,11 +61,17 @@ import {
   formStyles,
   StyledFormItem,
   StyledSwitchContainer,
+  antdWarningAlertStyles,
 } from './styles';
 import StyledFormItemWithTip from './StyledFormItemWithTip';
 import getBootstrapData from '../../../utils/getBootstrapData';
 import ColumnsPreviewWithType from './ColumnsPreviewWithTypes';
-import { inferSchema, TagsColumnRefs } from './misc';
+import {
+  inferCsvSchema,
+  inferExcelSchema,
+  TagsColumnRefs,
+  PandasType,
+} from './misc';
 import ModalFooterWithTour from './ModalFooterWithTour';
 
 type UploadType = 'csv' | 'excel' | 'columnar';
@@ -96,6 +102,7 @@ const CSVSpecificFields = [
 
 const ExcelSpecificFields = [
   'sheet_name',
+  'column_data_types',
   'column_dates',
   'decimal_character',
   'null_values',
@@ -123,6 +130,21 @@ const UploadTypeToSpecificFields: Record<UploadType, string[]> = {
 
 const isFieldATypeSpecificField = (field: string, type: UploadType) =>
   UploadTypeToSpecificFields[type].includes(field);
+
+const isTableNameFormatted = (tableName: string): boolean => {
+  console.log('Checking tableName:', tableName);
+  if (tableName) {
+    const startsWithNumber = /^[0-9]/.test(tableName);
+
+    const hasLower = /[a-z]/.test(tableName);
+    const hasUpper = /[A-Z]/.test(tableName);
+    const isMixedCase = hasLower && hasUpper;
+
+    return !startsWithNumber && !isMixedCase;
+  }
+
+  return true;
+};
 
 interface UploadInfo {
   table_name: string;
@@ -242,9 +264,18 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
     useState<boolean>(false);
   const [previewUploadedFile, setPreviewUploadedFile] = useState<boolean>(true);
   const [fileLoading, setFileLoading] = useState<boolean>(false);
-  const [csvSchema, setCsvSchema] = useState<{}>({});
-  const [columnDataTypes, setColumnDataTypes] = useState<string>('');
+  const [fileSchema, setFileSchema] = useState<Record<string, PandasType>>({});
+  const [columnTypeOverrides, setColumnTypeOverrides] = useState<
+    Record<string, PandasType>
+  >({});
+  const [excludedColumns, setExcludedColumns] = useState<string[]>([]);
   const [tableName, setTableName] = useState<string>('');
+
+  const [showTour, setShowTour] = useState<boolean>(false);
+  const [collapseKeys, setCollapseKeys] = useState<React.Key[]>(['general']);
+  const [savedCollapseKeys, setSavedCollapseKeys] = useState<
+    React.Key[] | null
+  >(null);
 
   const chooseFileRef = useRef(null);
   const previewColumnsRef = useRef(null);
@@ -257,7 +288,16 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
     resetButton: useRef(null),
   };
 
+  const allPanels: React.Key[] = ['general', '2', '3', '4'];
+
   const preUploadSteps: TourProps['steps'] = [
+    {
+      title: 'Superset upload process',
+      description:
+        'Superset supports uploading CSV, Excel (.xls or .xlsx) and Parquet files.',
+      target: null,
+      placement: 'center',
+    },
     {
       title: 'Choose file',
       description: 'Choose a file to upload.',
@@ -283,6 +323,13 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
   ];
 
   const postUploadSteps: TourProps['steps'] = [
+    {
+      title: 'Superset upload process',
+      description:
+        'Once a file has been uploaded, it can be previewed and the database schema for the file can be modified.',
+      target: null,
+      placement: 'center',
+    },
     {
       title: 'Previewing the data',
       description:
@@ -313,7 +360,24 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
       target: () => subRefs.resetButton.current,
       placement: 'bottomLeft',
     },
+    {
+      title: 'Advanced options',
+      description:
+        'Advanced options are available in the other collapsable panels, but most users will not need to modify these options.',
+      target: () => subRefs.resetButton.current,
+      placement: 'bottomLeft',
+    },
   ];
+
+  useEffect(() => {
+    if (showTour) {
+      setSavedCollapseKeys(collapseKeys);
+      setCollapseKeys(allPanels);
+    } else if (savedCollapseKeys) {
+      setCollapseKeys(savedCollapseKeys);
+      setSavedCollapseKeys(null);
+    }
+  }, [showTour]);
 
   useEffect(() => {
     const bootstrapData = getBootstrapData();
@@ -343,6 +407,9 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
     });
     return formattedMessages;
   };
+
+  const getStepsForTour = (): TourStepProps[] =>
+    fileList.length === 0 ? preUploadSteps : postUploadSteps;
 
   const buildDetailedUploadErrorMessage = (
     error: ClientErrorObject,
@@ -449,20 +516,26 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
   }, [uploadDatabaseName]);
 
   useEffect(() => {
-    const dataTypes: Record<string, string> = columnDataTypes
-      ? JSON.parse(columnDataTypes)
-      : {};
+    const baseTypes: Record<string, string> =
+      (fileSchema as Record<string, string>) || {};
 
-    const dateFilteredDataTypes = JSON.stringify(
-      Object.fromEntries(
-        Object.entries(dataTypes).filter(
-          ([, value]) => !['datetime64', 'datetime64[ns]'].includes(value),
-        ),
+    const mergedTypes: Record<string, string> = {
+      ...baseTypes,
+      ...columnTypeOverrides,
+    };
+
+    const filteredTypes = Object.fromEntries(
+      Object.entries(mergedTypes).filter(
+        ([, value]) => !['datetime64', 'datetime64[ns]'].includes(value),
       ),
     );
 
-    form.setFieldsValue({ column_data_types: dateFilteredDataTypes });
-  }, [columnDataTypes, form]);
+    const json = JSON.stringify(filteredTypes);
+
+    console.log('Setting column_data_types to:', json);
+
+    form.setFieldsValue({ column_data_types: json });
+  }, [fileSchema, columnTypeOverrides, form]);
 
   const createTypeToEndpointMap = (databaseId: number) =>
     `/api/v1/database/${databaseId}/upload/`;
@@ -542,8 +615,10 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
     setPreviewUploadedFile(true);
     setFileLoading(false);
     setSheetsColumnNames({});
-    setColumnDataTypes('');
-    setCsvSchema({});
+    setFileSchema({});
+    setColumnTypeOverrides({});
+    setExcludedColumns([]);
+    setTableName('');
     form.resetFields();
   };
 
@@ -723,7 +798,10 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
     setFileList(fileList.filter(file => file.uid !== removedFile.uid));
     setColumns([]);
     setSheetNames([]);
-    setCsvSchema({});
+    setFileSchema({});
+    setColumnTypeOverrides({});
+    setExcludedColumns([]);
+    setTableName('');
     form.setFieldsValue({ sheet_name: undefined });
     return false;
   };
@@ -741,12 +819,21 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
   const onChangeFile = async (info: UploadChangeParam<any>) => {
     const file = info.file.originFileObj;
 
+    setFileList([
+      {
+        ...info.file,
+        status: 'done',
+      },
+    ]);
+
     if (file && file.type === 'text/csv') {
       const reader = new FileReader();
       reader.onload = e => {
         const text = (e.target?.result as string) || '';
-        const result = inferSchema(text);
-        setCsvSchema(result);
+        const result = inferCsvSchema(text);
+        setColumnTypeOverrides({});
+        setExcludedColumns([]);
+        setFileSchema(result);
       };
       reader.onerror = () => {
         addDangerToast('Failed to read file.');
@@ -754,16 +841,21 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
       reader.readAsText(file);
     }
 
+    if (file && type === 'excel') {
+      try {
+        const result = await inferExcelSchema(file);
+        setColumnTypeOverrides({});
+        setExcludedColumns([]);
+        setFileSchema(result);
+      } catch (e) {
+        addDangerToast('Failed to read file.');
+      }
+    }
+
     const withoutExt: string =
       file.name.substring(0, file.name.lastIndexOf('.')) || file.name;
-    setTableName(withoutExt);
+    setTableName(withoutExt.replaceAll(/[^a-zA-Z0-9 ]/g, '_').toLowerCase());
 
-    setFileList([
-      {
-        ...info.file,
-        status: 'done',
-      },
-    ]);
     if (!previewUploadedFile) {
       return;
     }
@@ -873,7 +965,9 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
         footer={
           <ModalFooterWithTour
             form={form}
-            steps={fileList.length === 0 ? preUploadSteps : postUploadSteps}
+            showTour={showTour}
+            setShowTour={setShowTour}
+            steps={getStepsForTour()}
             onClose={onClose}
             isLoading={isLoading}
           />
@@ -890,6 +984,8 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
             expandIconPosition="right"
             accordion
             defaultActiveKey="general"
+            activeKey={collapseKeys}
+            onChange={keys => setCollapseKeys(keys as React.Key[])}
             css={(theme: SupersetTheme) => antdCollapseStyles(theme)}
           >
             <Collapse.Panel
@@ -934,10 +1030,14 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
                 </Col>
               </Row>
               <Row ref={previewColumnsRef}>
+                <StyledFormItem name="column_data_types" hidden />
                 <Col span={24}>
                   <ColumnsPreviewWithType
-                    schema={csvSchema}
-                    show={show}
+                    schema={fileSchema}
+                    columnTypeOverrides={columnTypeOverrides}
+                    excludedColumns={excludedColumns}
+                    onColumnTypeOverridesChange={setColumnTypeOverrides}
+                    onExcludedColumnsChange={setExcludedColumns}
                     refs={subRefs}
                   />
                 </Col>
@@ -990,10 +1090,28 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
                       data-test="properties-modal-name-input"
                       type="text"
                       placeholder={t('Name of table to be created')}
+                      onChange={e => setTableName(e.target.value)}
                     />
                   </StyledFormItem>
                 </Col>
               </Row>
+              {!isTableNameFormatted(tableName) && (
+                <Row>
+                  <Col span={24}>
+                    <Alert
+                      closable={false}
+                      css={(theme: SupersetTheme) =>
+                        antdWarningAlertStyles(theme)
+                      }
+                      message={t(
+                        'Table name contains mixed case and will need to be quoted in queries.',
+                      )}
+                      showIcon
+                      type="warning"
+                    />
+                  </Col>
+                </Row>
+              )}
               {isFieldATypeSpecificField('delimiter', type) && (
                 <Row>
                   <Col span={24}>

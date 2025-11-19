@@ -1,12 +1,15 @@
-import { FC, useEffect, useMemo, useState } from 'react';
+import { FC, useMemo } from 'react';
 import { styled, t } from '@superset-ui/core';
 import TagsColumn, { ColumnTag } from './TagsColumn';
 import { PandasType, TagsColumnRefs } from './misc';
 
 interface ColumnsPreviewWithTypeProps {
   schema: Record<string, PandasType>;
+  columnTypeOverrides: Record<string, PandasType>;
+  excludedColumns: string[];
+  onColumnTypeOverridesChange: (overrides: Record<string, PandasType>) => void;
+  onExcludedColumnsChange: (excludedColumn: string[]) => void;
   maxColumnsToShow?: number;
-  show: boolean;
   refs: TagsColumnRefs;
 }
 
@@ -22,17 +25,17 @@ const SecondaryText = styled.span`
 
 const ColumnsPreviewWithType: FC<ColumnsPreviewWithTypeProps> = ({
   schema,
+  columnTypeOverrides,
+  excludedColumns,
+  onColumnTypeOverridesChange,
+  onExcludedColumnsChange,
   maxColumnsToShow = 4,
-  show,
   refs,
 }) => {
-  const [overrides, setOverrides] = useState<Record<string, PandasType>>({});
-  const [excludedColumns, setExcludedColumns] = useState<string[]>([]);
-
   const tags: ColumnTag[] = useMemo(
     () =>
       Object.entries(schema).map(([name, originalType]) => {
-        const override = overrides[name];
+        const override = columnTypeOverrides[name];
         const effectiveType = override ?? originalType;
         const modified = override !== undefined && override !== originalType;
         return {
@@ -43,26 +46,23 @@ const ColumnsPreviewWithType: FC<ColumnsPreviewWithTypeProps> = ({
           modified,
         };
       }),
-    [schema, overrides],
+    [schema, columnTypeOverrides],
   );
 
   const handleTypeChange = (name: string, newType: PandasType) => {
-    setOverrides(prev => ({ ...prev, [name]: newType }));
+    onColumnTypeOverridesChange({
+      ...columnTypeOverrides,
+      [name]: newType,
+    });
   };
 
   const handleResetTypes = () => {
-    setOverrides({});
-    setExcludedColumns([]);
+    onColumnTypeOverridesChange({});
+    onExcludedColumnsChange([]);
   };
 
   const hasOverrides =
     tags.some(tag => tag.modified) || excludedColumns.length !== 0;
-
-  useEffect(() => {
-    if (!show) {
-      setOverrides({});
-    }
-  }, [show]);
 
   return (
     <StyledDivContainer>
@@ -73,9 +73,8 @@ const ColumnsPreviewWithType: FC<ColumnsPreviewWithTypeProps> = ({
         <TagsColumn
           tags={tags}
           maxTags={maxColumnsToShow}
-          show={show}
           excludedColumns={excludedColumns}
-          onExcludedColumnsChange={setExcludedColumns}
+          onExcludedColumnsChange={onExcludedColumnsChange}
           onTypeChange={handleTypeChange}
           onReset={handleResetTypes}
           hasOverrides={hasOverrides}

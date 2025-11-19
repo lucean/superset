@@ -22,6 +22,12 @@ import { css, styled, SupersetTheme } from '@superset-ui/core';
 const MODAL_BODY_HEIGHT = 180.5;
 const antIconHeight = 12;
 
+export const antdWarningAlertStyles = (theme: SupersetTheme) => css`
+  & .antd5-alert-message {
+    font-size: ${theme.typography.sizes.s}px;
+  }
+`;
+
 export const StyledFormItem = styled(FormItem)`
   ${({ theme }) => css`
     flex: 1;
@@ -41,7 +47,7 @@ export const antdCollapseStyles = (theme: SupersetTheme) => css`
   .ant-collapse-header {
     padding-top: ${theme.gridUnit * 3.5}px;
     padding-bottom: ${theme.gridUnit * 2.5}px;
-    .anticon.ant-collapse-arrow {
+    .ant-icon.ant-collapse-arrow {
       top: calc(50% - ${antIconHeight / 2}px);
     }
     .helper {

@@ -1719,6 +1719,8 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
             request_form = request.form.to_dict()
             request_form["file"] = request.files.get("file")
             parameters = UploadPostSchema().load(request_form)
+            print('parameters')
+            print(parameters)
             reader: BaseDataReader
             if parameters["type"] == UploadFileType.CSV.value:
                 reader = CSVReader(parameters)

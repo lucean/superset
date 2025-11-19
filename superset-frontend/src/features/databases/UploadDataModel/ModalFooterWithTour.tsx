@@ -1,7 +1,7 @@
 import { styled, t } from '@superset-ui/core';
 import Button from 'src/components/Button';
 import { Tour, TourProps } from 'antd-v5';
-import { FC, useState } from 'react';
+import { FC } from 'react';
 import { FormInstance } from 'antd/lib/form/hooks/useForm';
 import Icons from '../../../components/Icons';
 
@@ -34,6 +34,8 @@ const FooterGroup = styled.div`
 type Props = {
   form: FormInstance;
   steps: TourProps['steps'];
+  showTour: boolean;
+  setShowTour: (arg0: boolean) => void;
   onClose: () => void;
   isLoading: boolean;
 };
@@ -41,11 +43,11 @@ type Props = {
 const ModalFooterWithTour: FC<Props> = ({
   form,
   steps,
+  showTour,
+  setShowTour,
   onClose,
   isLoading,
 }) => {
-  const [showTour, setShowTour] = useState<boolean>(false);
-
   return (
     <ModalFooterWrapper>
       <FooterGroup>
@@ -58,7 +60,6 @@ const ModalFooterWithTour: FC<Props> = ({
           <StyledIcon iconSize="m" />
           {t('Help')}
         </Button>
-        {/* Tour is usually rendered via portal, so this is fine here */}
         <StyledTour
           open={showTour}
           onClose={() => setShowTour(false)}

@@ -43,6 +43,7 @@ class ExcelReaderOptions(ReaderOptions, total=False):
     null_values: list[str]
     rows_to_read: int
     skip_rows: int
+    column_data_types: dict[str, str]
 
 
 class ExcelReader(BaseDataReader):
@@ -63,6 +64,8 @@ class ExcelReader(BaseDataReader):
         :throws DatabaseUploadFailed: if there is an error reading the file
         """
 
+        print(self._options)
+
         kwargs = {
             "header": self._options.get("header_row", 0),
             "index_col": self._options.get("index_column"),
@@ -76,6 +79,7 @@ class ExcelReader(BaseDataReader):
             "skiprows": self._options.get("skip_rows", 0),
             "sheet_name": self._options.get("sheet_name", 0),
             "nrows": self._options.get("rows_to_read"),
+            "dtype": self._options.get("column_data_types"),
         }
         if self._options.get("columns_read"):
             kwargs["usecols"] = self._options.get("columns_read")

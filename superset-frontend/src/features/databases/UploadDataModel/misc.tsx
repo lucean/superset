@@ -1,5 +1,6 @@
 import { csvParse, autoType } from 'd3-dsv';
 import { MutableRefObject } from 'react';
+import { read, utils } from 'xlsx';
 
 export type TagsColumnRefs = {
   pillName: MutableRefObject<any>;
@@ -69,9 +70,11 @@ function toPandasType(values: any[]): PandasType {
   return 'object';
 }
 
-export function inferSchema(csvText: string, sampleSize = 10): {} {
-  const data: any = csvParse(csvText, autoType);
-  const sample: Record<string, PandasType>[] = data.slice(0, sampleSize);
+export function inferSchemaFromRows(
+  rows: Record<string, any>[],
+  sampleSize = 10,
+): Record<string, PandasType> {
+  const sample = rows.slice(0, sampleSize);
   if (sample.length === 0) return {};
   const schema: Record<string, PandasType> = {};
   for (const key of Object.keys(sample[0])) {
@@ -79,4 +82,44 @@ export function inferSchema(csvText: string, sampleSize = 10): {} {
     schema[key] = toPandasType(columnValues);
   }
   return schema;
+}
+
+export function inferCsvSchema(
+  csvText: string,
+  sampleSize = 10,
+): Record<string, PandasType> {
+  const rows: any[] = csvParse(csvText, autoType);
+  return inferSchemaFromRows(rows, sampleSize);
+}
+
+export async function inferExcelSchema(
+  file: File,
+  sampleSize = 10,
+  sheetName?: string,
+): Promise<Record<string, PandasType>> {
+  const buffer = await file.arrayBuffer();
+  const workbook = read(buffer, {
+    type: 'array',
+    cellDates: true, // Excel dates -> JS Date
+  });
+
+  const targetSheetName =
+    sheetName && workbook.SheetNames.includes(sheetName)
+      ? sheetName
+      : workbook.SheetNames[0];
+
+  if (!targetSheetName) {
+    return {};
+  }
+
+  const worksheet = workbook.Sheets[targetSheetName];
+  if (!worksheet) {
+    return {};
+  }
+
+  const rows: Record<string, any>[] = utils.sheet_to_json(worksheet, {
+    raw: true,
+  });
+
+  return inferSchemaFromRows(rows, sampleSize);
 }

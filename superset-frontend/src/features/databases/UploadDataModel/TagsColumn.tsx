@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { styled, useTheme } from '@superset-ui/core';
 import { Badge, Select, Tooltip } from 'antd';
 import TagType from 'src/types/TagType';
@@ -14,7 +14,6 @@ export type ColumnTag = TagType & {
 
 export type TagsColumnProps = {
   tags?: ColumnTag[];
-  show: boolean;
   maxTags?: number;
   onTypeChange?: (name: string, newType: PandasType) => void;
   onReset?: () => void;
@@ -59,7 +58,7 @@ const Pill = styled.div`
   color: ${({ theme }) => theme.colors.grayscale.dark2};
   background: ${({ theme }) => theme.colors.grayscale?.light4};
   box-sizing: border-box;
-  overflow: hidden;
+  overflow: visible;
 `;
 
 const PillName = styled.span`
@@ -75,6 +74,7 @@ const PillName = styled.span`
 `;
 
 const TypeChip = styled.span`
+  position: relative;
   flex: 0 0 ${TYPE_CHIP_WIDTH_PX}px;
   display: flex;
   align-items: center;
@@ -157,7 +157,22 @@ const getTypeColor = (type: PandasType | undefined, theme: any): string => {
 };
 
 const StyledBadge = styled(Badge)`
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 1;
+
   .ant-badge-dot {
+    position: absolute;
+    top: -2px;
+    left: 0;
+    width: 4px;
+    height: 6px;
+    border-radius: 50%;
+    transform: translateX(-50%);
     background: ${({ theme }) => theme.colors.warning.dark2};
   }
 `;
@@ -184,7 +199,6 @@ const StyledDownTriangle = styled(Icons.CaretUp)`
 
 const TagsColumn = ({
   tags = [],
-  show,
   maxTags,
   onTypeChange,
   onReset,
@@ -211,13 +225,6 @@ const TagsColumn = ({
     () => (visibleCount ? tags.slice(0, visibleCount - 1) : tags),
     [tags, visibleCount],
   );
-
-  useEffect(() => {
-    if (!show) {
-      if (!onExcludedColumnsChange) return;
-      onExcludedColumnsChange(Array.from(new Set()));
-    }
-  }, [onExcludedColumnsChange, show]);
 
   const toggleCollapse = () =>
     setVisibleCount(current => (current ? undefined : maxTags));
@@ -248,6 +255,29 @@ const TagsColumn = ({
         const key = id != null ? String(id) : name;
         const isExcluded = excludedSet.has(name);
 
+        const typeChip = (
+          <TypeChip
+            style={{ backgroundColor: getTypeColor(effectiveType, theme) }}
+            ref={index === 0 ? refs.typeChip : undefined}
+          >
+            {modified && <StyledBadge dot />}
+            <Select<PandasType>
+              size="small"
+              bordered={false}
+              dropdownMatchSelectWidth={false}
+              value={effectiveType}
+              disabled={isExcluded}
+              onChange={value => onTypeChange?.(name, value)}
+            >
+              {PANDAS_TYPES.map(t => (
+                <Select.Option key={t} value={t}>
+                  {TYPE_LABELS[t]}
+                </Select.Option>
+              ))}
+            </Select>
+          </TypeChip>
+        );
+
         const pill = (
           <Pill style={isExcluded ? { opacity: 0.5 } : undefined}>
             <PillName
@@ -259,25 +289,9 @@ const TagsColumn = ({
             >
               {name}
             </PillName>
-            <TypeChip
-              style={{ backgroundColor: getTypeColor(effectiveType, theme) }}
-              ref={index === 0 ? refs.typeChip : undefined}
-            >
-              <Select<PandasType>
-                size="small"
-                bordered={false}
-                dropdownMatchSelectWidth={false}
-                value={effectiveType}
-                disabled={isExcluded}
-                onChange={value => onTypeChange?.(name, value)}
-              >
-                {PANDAS_TYPES.map(t => (
-                  <Select.Option key={t} value={t}>
-                    {TYPE_LABELS[t]}
-                  </Select.Option>
-                ))}
-              </Select>
-            </TypeChip>
+
+            {typeChip}
+
             {onExcludedColumnsChange && (
               <Tooltip title={isExcluded ? 'Include column' : 'Exclude column'}>
                 <ActionChip
@@ -300,17 +314,7 @@ const TagsColumn = ({
           </Pill>
         );
 
-        return (
-          <RowWrapper key={key}>
-            {modified ? (
-              <StyledBadge dot offset={[-4, 0]}>
-                {pill}
-              </StyledBadge>
-            ) : (
-              pill
-            )}
-          </RowWrapper>
-        );
+        return <RowWrapper key={key}>{pill}</RowWrapper>;
       })}
 
       {maxTags && tags.length > maxTags && (
